@@ -140,26 +140,38 @@ def output_guardrail(report: str, goal: str) -> tuple[bool, str]:
     if len(report) < 100:
         return False, "Report too short — possible generation failure"
 
-    # Check 2 — topic alignment (LLM)
+    # Check 2 — topic alignment (LLM). Give enough of the report to see tables/sections.
+    report_preview = report[:1200]
     try:
         response = get_guard_llm().invoke(f"""
-You are a strict quality guardrail for a research agent.
+You are a topic-alignment checker for a research agent.
 
-Original goal: "{goal}"
-Report (first 400 characters): "{report[:400]}"
+Goal: "{goal}"
 
-Does this report actually address the research goal?
-Answer with EXACTLY one word: YES or NO
+Report preview (first 1200 chars — may include markdown tables):
+---
+{report_preview}
+---
 
-Only reply with YES or NO. No explanation.
+Does the report plausibly address the goal's subject matter? Answer YES if the
+report is on-topic and substantive (even if not exhaustive). Answer NO ONLY if
+the report is clearly off-topic, empty, or a generation error.
+
+Reply with EXACTLY one word: YES or NO. No other text.
 """)
 
-        verdict = response.content.strip().upper()
+        # Match the first word only — prompt asks for exactly YES or NO.
+        verdict = response.content.strip().upper().split()[0] if response.content.strip() else ""
+        verdict = verdict.rstrip(".,!:;")
 
-        if "NO" in verdict or "NO" == verdict:
+        if verdict == "NO":
             reason = "Report does not match the research goal"
             print(f"\n🛡️ OUTPUT BLOCKED: {reason}")
             return False, reason
+
+        if verdict != "YES":
+            # Ambiguous response — fail open with a warning rather than block a valid report
+            print(f"\n⚠️ OUTPUT GUARDRAIL: ambiguous verdict '{verdict[:20]}' — allowing")
 
         print(f"\n✅ OUTPUT APPROVED: report passed quality check")
         return True, "passed"

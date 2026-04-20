@@ -1,99 +1,77 @@
 # team/searcher.py
 # THE SEARCHER (The Researcher)
-# Responsibility: Execute the search queries created by the Planner and collect raw data. This is the "field research" phase where we gather information.
-# This agent ONLY does searches and data collection. It does NOT synthesize or write the report - that is the Writer's job. This separation of concerns allows each agent to specialize and makes the overall system more robust and maintainable.
-# Has its own tools and logic for searching, so it can be tuned independently from the Planner and Writer.
+# Executes planner queries, collects structured results (snippet + URL) from DuckDuckGo.
+# Each result becomes one finding so the writer can cite sources individually.
 
 from langsmith import traceable
-from langchain_community.tools import DuckDuckGoSearchRun
+from langchain_community.tools import DuckDuckGoSearchResults
 
 from team.state import ResearchAgentState
 
 
+search_tool = DuckDuckGoSearchResults(output_format="list", num_results=4)
 
-#  SEARCHER'S OWN TOOLS
-# only the searcher has access to search tools - least privilege
-search_tool = DuckDuckGoSearchRun()
+MAX_SNIPPET_CHARS = 1000     # per-snippet cap (was 300 — too aggressive)
+MAX_RESULTS_PER_QUERY = 3    # keep top 3 per query
 
-# SEARCHER BUDGET
-MAX_RESULT_CHARS = 300  # max chars to store per search result to control token usage
 
 @traceable(
     name="searcher_agent",
     tags=["searcher", "searching", "data_collection", "tool-use"],
-    metadata={"agent": "searcher", "tool": "DuckDuckGo"}
+    metadata={"agent": "searcher", "tool": "DuckDuckGo"},
 )
-# The Searcher Agent — executes search queries from the plan, collects raw data.
-
 def searcher_agent(state: ResearchAgentState) -> ResearchAgentState:
     """
-    Searcher Agent — executes each query in the plan.
-    Writes raw findings to state['findings'].
-    Skips already-searched queries (idempotency).
+    Executes each query in the plan. Each search result becomes one finding
+    formatted as:  [SOURCE n] Title — URL\nQuery: ...\nSnippet: ...
+    Idempotent: skips queries already in searches_done.
     """
     print(f"\n🔍 SEARCHER: Starting {len(state['plan'])} searches...")
 
-    for query in state["plan"]:
+    source_counter = len(state["findings"]) + 1
 
-        # 🔒 IDEMPOTENCY CHECK
+    for query in state["plan"]:
         if query in state["searches_done"]:
             print(f"   ⏭️  Already searched: {query}")
             continue
 
         print(f"   🔎 Searching: {query}")
         try:
-            result = search_tool.run(query)
-            trimmed = result[:MAX_RESULT_CHARS]
-            state["findings"].append(
-                f"Query: {query}\nResult: {trimmed}"
-            )
-            state["searches_done"].append(query)
-            print(f"   ✅ Found {len(result)} chars → trimmed to {MAX_RESULT_CHARS}")
-
+            results = search_tool.run(query)
         except Exception as e:
             print(f"   ❌ Search failed for '{query}': {e}")
+            continue
+
+        # DuckDuckGoSearchResults(output_format="list") → list[dict]
+        # Keys: 'snippet', 'title', 'link'
+        if not isinstance(results, list):
+            print(f"   ⚠️ Unexpected result type for '{query}': {type(results)}")
+            continue
+
+        kept = 0
+        seen_links = {f for f in state["findings"] if "URL:" in f}
+        for r in results[:MAX_RESULTS_PER_QUERY]:
+            title = (r.get("title") or "Untitled").strip()
+            link = (r.get("link") or "").strip()
+            snippet = (r.get("snippet") or "").strip()[:MAX_SNIPPET_CHARS]
+
+            if not snippet:
+                continue
+            # Simple dedup — skip if we already have this URL
+            if link and any(link in f for f in state["findings"]):
+                continue
+
+            state["findings"].append(
+                f"[SOURCE {source_counter}] {title}\n"
+                f"URL: {link}\n"
+                f"Query: {query}\n"
+                f"Snippet: {snippet}"
+            )
+            source_counter += 1
+            kept += 1
+
+        state["searches_done"].append(query)
+        print(f"   ✅ Kept {kept} results for this query")
 
     print(f"   📦 Total findings collected: {len(state['findings'])}")
     return state
-    """
-    Searcher Agent — executes search queries from the plan, collects raw data.
-    Reads state['plan'], writes raw results to state['findings'].
-    Does NOT write the final report.
-    """
-    print(f"\n🔍 SEARCHER: Executing research plan...")
-
-    for query in state["plan"]:
-        if query in state["searches_done"]:
-            print(f"   🔁 Skipping already done query: {query}")
-            continue
-        print(f"\n🔍 SEARCHER: Starting {len(state['plan'])} searches...")
-        for query in state["searches_done"]:
-            print(f"   🔁 Skipping already done query: {query}")
-            continue
-        print(f"\n   🔎 Searching: {query}")
-
-        try:
-            result = search_tool.run(query)
-
-            # Trim result to control downstream token costs
-            trimmed = result[:MAX_RESULT_CHARS]
-
-            # Write to shared notebook
-            state["findings"].append(
-                f"Query: {query}\nResult: {trimmed}"
-            )
-            state["searches_done"].append(query)
-            print(f"   ✅ Found {len(result)} chars → trimmed to {MAX_RESULT_CHARS}")
-
-        except Exception as e:
-            # Search failure is non-fatal — log and continue
-            print(f"   ❌ Search failed for '{query}': {e}")
-
-    print(f"   📦 Total findings collected: {len(state['findings'])}")
-    return state
-
-
-# Note: Non-fatal error handling:             
-# Search failure = log and continue
-# Agent doesn't crash if one query fails
-# Remaining queries still execute

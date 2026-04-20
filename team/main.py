@@ -94,4 +94,9 @@ def run_research(goal: str) -> str:
 
 
 if __name__ == "__main__":
-    run_research("Compare electric cars under $40k right now.")
+    import sys
+    if len(sys.argv) > 1:
+        goal = " ".join(sys.argv[1:])
+    else:
+        goal = input("🔬 Research goal: ").strip()
+    run_research(goal)
