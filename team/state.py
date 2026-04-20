@@ -11,5 +11,6 @@ class ResearchAgentState(TypedDict):
     plan: List[str] # queries created by the Planner
     searches_done: List[str] # Idempotency checklist to avoid repeating searches
     findings: List[str] # Raw data from the Searcher
+    verified_findings: List[str] # Verified facts after fact-checking
     report: str    # The final polished report from the Writer
 

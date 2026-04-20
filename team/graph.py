@@ -17,6 +17,7 @@ from team.state import ResearchAgentState
 from team.planner import planner_agent
 from team.searcher import searcher_agent
 from team.writer import writer_agent
+from team.factchecker import fact_checker_agent
 
 # 🚦 THE ROUTER (The Quality Manager)
 # Logic: Check if we have enough quality findings.
@@ -70,6 +71,7 @@ def build_graph() -> StateGraph:
     # 🧩 REGISTER ALL AGENTS AS NODES
     graph.add_node("plan", planner_agent)
     graph.add_node("search", searcher_agent)
+    graph.add_node("fact_check", fact_checker_agent)
     graph.add_node("budget_check", budget_check)
     graph.add_node("write", writer_agent)
 
@@ -77,13 +79,14 @@ def build_graph() -> StateGraph:
     graph.set_entry_point("plan")
     graph.add_edge("plan", "search")
 
-    # Router decides: search more or move to budget check
+    # Router decides: search more or move to fact check
     graph.add_conditional_edges("search", router, {
         "search": "search",       # loop back
-        "write": "budget_check"   # enough data → check budget first
+        "write": "fact_check"     # enough data → fact check first
     })
 
-    # Budget check → writer → done
+    # Fact check → budget check → writer → done
+    graph.add_edge("fact_check", "budget_check")
     graph.add_edge("budget_check", "write")
     graph.add_edge("write", END)
 

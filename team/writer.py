@@ -38,7 +38,10 @@ def writer_agent(state: ResearchAgentState) -> ResearchAgentState:
     """
     print(f"\n✍️  WRITER: Synthesizing {len(state['findings'])} findings...")
 
-    findings_text = "\n\n".join(state["findings"])
+    findings_text = "\n\n".join(
+    state["verified_findings"] if state["verified_findings"] 
+    else state["findings"]  # fallback if fact-checker found nothing)
+    )
 
     try:
         response = writer_llm.invoke(f"""
