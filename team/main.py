@@ -94,4 +94,9 @@ def run_research(goal: str) -> str:
 
 
 if __name__ == "__main__":
-    run_research("Compare electric cars under $40k right now.")
+    user_goal = input("Enter your research question: ").strip()
+    if not user_goal:
+        user_goal = "Compare electric cars under $40k right now."
+        print(f"No input provided. Using default goal: {user_goal}")
+
+    run_research(user_goal)
