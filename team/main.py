@@ -67,9 +67,13 @@ def run_research(goal: str) -> str:
         # Initial state — notebook starts empty
         {
             "goal": goal,
+            "brief": {},          # Brief Agent fills this
             "plan": [],           # Planner fills this
             "searches_done": [],  # Searcher fills this
             "findings": [],       # Searcher fills this
+            "verified_findings": [],  # Fact Checker fills this
+            "rejected_findings": [],  # Fact Checker fills this
+            "claims": [],         # Claim Builder fills this
             "report": ""          # Writer fills this
         },
         # Run-level metadata for LangSmith
@@ -85,6 +89,11 @@ def run_research(goal: str) -> str:
         }
     )
 
+    print(f"\n📊 Run summary:")
+    print(f"   Findings collected: {len(result['findings'])}")
+    print(f"   Verified: {len(result['verified_findings'])}")
+    print(f"   Rejected: {len(result['rejected_findings'])}")
+    print(f"   Claims extracted: {len(result['claims'])}")
     print("\n" + "="*50)
     print("📄 FINAL REPORT")
     print("="*50)

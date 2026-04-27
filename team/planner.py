@@ -1,126 +1,125 @@
 # team/planner.py
 # THE PLANNER (The Architect)
+#----- OLD VERSION (before refactor) -----
 # Resposibility: Take the goal and create 3 targeted search queries to research the topic. This is the "brainstorming" phase where we decide what to look for.
 # Input: Goal from the Notebook. Output: 3 specific search queries saved back to the Notebook.
 # This is the first node in our agent's workflow. It sets the direction for the entire research process. A good plan leads to better findings and a stronger final report.
 # This agent only creates the plan. It does not execute searches or write the report. It focuses on understanding the goal and breaking it down into actionable search queries.
 # Has its own LLM instance so it can be tuned independently.
+# NEW VERSION (after refactor) 
+# Responsibility: Create 8 targeted search queries from the research brief.
+# Not 3 generic queries — 8 purposeful ones with strategy per research type.
+# Reads: brief. Writes: plan.
 
-import os 
+# team/planner.py
+# 📋 THE PLANNER AGENT (The Architect)
+# Responsibility: Create 8 targeted search queries from the research brief.
+# Not 3 generic queries — 8 purposeful ones with strategy per research type.
+# Reads: brief. Writes: plan.
+
+import os
+import json
 from datetime import datetime
-from dotenv import load_dotenv
+
 from langsmith import traceable
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from team.state import ResearchAgentState
-from team.utils import is_quota_or_model_error, fallback_plan_queries
+from team.utils import fallback_plan_queries
 
-# THE PLANNER'S BRAIN
-# Could use a different model or settings than the Writer for cost/performance balance.
 
-PLANNER_MODEL_NAME = os.getenv("PLANNER_MODEL", "gemini-2.5-flash-lite")
+PLANNER_MODEL = os.getenv("PLANNER_MODEL", "gemini-2.5-flash-lite")
 
-planner_llm = ChatGoogleGenerativeAI(
-    model=PLANNER_MODEL_NAME,
-    max_retries=3,
-    request_timeout=30,
-)
+
+def get_planner_llm():
+    """Lazy load — after .env is loaded."""
+    return ChatGoogleGenerativeAI(
+        model=os.getenv("PLANNER_MODEL", "gemini-2.5-flash-lite"),
+        max_retries=3,
+        request_timeout=30,
+        temperature=0.0,
+    )
 
 
 @traceable(
     name="planner_agent",
     tags=["planner", "planning", "llm"],
-    metadata={"agent": "planner", "model": PLANNER_MODEL_NAME}
+    metadata={"agent": "planner"}
 )
-def planner_agent(state: ResearchAgentState) -> ResearchAgentState:
+def planner_agent(state: ResearchAgentState) -> dict:
     """
-    Planner Agent — reads the goal, creates 3 targeted search queries.
-    Writes results to state['plan']. Never searches or writes.
+    Planner Agent — creates 8 targeted search queries from the research brief.
+    Each query has a purpose and priority.
+    Strategy varies by research type.
+    Writes result to state['plan'].
     """
-    print(f"\n📋 PLANNER: Designing research plan for: {state['goal']}")
+    print(f"\n📋 PLANNER: Creating research plan...")
+    print(f"   Research type: {state['brief'].get('research_type', 'unknown')}")
+
+    year = datetime.now().year  # ← inside function, after .env is loaded
 
     try:
-        year = datetime.now().year
-        response = planner_llm.invoke(f"""
-            You are a research planning expert.
-            Goal: {state['goal']}
+        response = get_planner_llm().invoke(f"""
+You are the search planner for FactCrafter, a general-purpose research agent.
 
-            Create exactly 3 specific search queries to research this topic.
-            Each query MUST include the year {year} to get latest results.
-            Return only the queries, one per line, no numbering, no extra text.
-        """)
-        state["plan"] = [
-            q.strip()
-            for q in response.content.strip().split("\n")
-            if q.strip()
-        ][:3]
+Current year: {year}
+
+Research brief:
+{json.dumps(state["brief"], indent=2)}
+
+Create exactly 8 targeted search queries.
+
+Strategy by research_type:
+- current_events: prioritize recent news, official statements, timeline
+- market_analysis: prioritize data, statistics, trends, competitors
+- product_comparison: prioritize specs, pricing, reviews, alternatives
+- local_regional_analysis: prioritize local sources, official data, regional news
+- technical_research: prioritize official docs, GitHub, changelogs, papers
+- scientific_academic: prioritize papers, institutions, research organizations
+- historical_background: prioritize encyclopedias, archives, academic sources
+- policy_legal: prioritize official laws, government sources, legal analysis
+- company_person_profile: prioritize official sites, filings, news, interviews
+- general_explainer: prioritize clear explanations, authoritative sources
+
+Rules:
+- Each query must have a clear unique purpose
+- If freshness_required is true, include {year} in time-sensitive queries
+- Cover: overview, primary source, recent data, expert analysis,
+  criticism/risks, comparison/context, statistics, deep dive
+- Avoid vague or duplicate queries
+- For must_cover topics in the brief, create specific queries
+
+Return STRICT JSON only. No markdown, no backticks:
+[
+  {{"query": "...", "purpose": "overview", "priority": 1}},
+  {{"query": "...", "purpose": "primary source", "priority": 1}},
+  {{"query": "...", "purpose": "recent data", "priority": 2}},
+  {{"query": "...", "purpose": "expert analysis", "priority": 2}},
+  {{"query": "...", "purpose": "criticism risks", "priority": 3}},
+  {{"query": "...", "purpose": "comparison context", "priority": 3}},
+  {{"query": "...", "purpose": "statistics", "priority": 2}},
+  {{"query": "...", "purpose": "deep dive", "priority": 3}}
+]
+""")
+
+        content = response.content.strip()
+        if content.startswith("```"):
+            content = content.split("```")[1]
+            if content.startswith("json"):
+                content = content[4:]
+        content = content.strip()
+
+        plan = json.loads(content)
+
+        # Sort by priority
+        plan = sorted(plan, key=lambda x: x.get("priority", 99))
+
+        print(f"   ✅ Created {len(plan)} queries")
+        for q in plan:
+            print(f"   [{q['priority']}] {q['purpose']}: {q['query'][:60]}...")
+
+        return {"plan": plan}
 
     except Exception as e:
-        if is_quota_or_model_error(e):
-            print(f"   ⚠️ Planner unavailable ({PLANNER_MODEL}). Using fallback.")
-            state["plan"] = fallback_plan_queries(state["goal"])
-        else:
-            raise
-
-    print(f"   ✅ Plan created: {state['plan']}")
-    return state
-    """
-    Planner Agent — reads the goal, creates 3 search queries.
-    Writes results to state['plan'].
-    """
-    print(f"\n📋 PLANNER: Designing research plan for: {state['goal']}")
-
-    try:
-        year = datetime.now().year
-        response = planner_llm.invoke(f"""
-            You are a research planning expert.
-            Goal: {state['goal']}
-
-            Create exactly 3 specific search queries to research this topic.
-            Each query MUST include the year {year} to get latest results.
-            Return only the queries, one per line, no numbering, no extra text.
-        """)
-        state["plan"] = [
-            q.strip()
-            for q in response.content.strip().split("\n")
-            if q.strip()
-        ][:3]
-
-    except Exception as e:
-        if is_quota_or_model_error(e):
-            print(f"   ⚠️ Planner LLM unavailable. Using fallback.")
-            state["plan"] = fallback_plan_queries(state["goal"])
-        else:
-            raise
-
-    print(f"   ✅ Plan created: {state['plan']}")
-    return state
-
-
-    """Takes the goal and creates a plan of 3 search queries to find relevant information."""
-    print(f"\n🧠 PLANNER AGENT STARTED - Goal: {state['goal']}")
-    
-    try:
-        prompt = f"""You are a research assistant. Your task is to create a plan to achieve the following goal: "{state['goal']}". 
-        Break down this goal into 3 specific search queries that would help you research this topic effectively. 
-        Return only the list of queries without any additional text or formatting."""
-        
-        response = planner_llm.generate([{"role": "system", "content": prompt}])
-        queries_text = response.generations[0][0].text.strip()
-        queries = [q.strip("- ").strip() for q in queries_text.split("\n") if q.strip()]
-        
-        if not queries:
-            raise ValueError("LLM did not return any queries.")
-        
-        state["plan"] = queries
-        print(f"   ✅ Planner created {len(queries)} queries.")
-    
-    except Exception as e:
-        print(f"   ⚠️ Planner LLM unavailable. Using fallback: {e}")
-        if is_quota_or_model_error(e):
-            print("   Using fallback plan due to LLM issue.")
-            state["plan"] = fallback_plan_queries(state["goal"])
-        else:
-            raise e  # re-raise if it's an unexpected error
-        print(f"   ✅ Plan created: {state['plan']}")
-    return state
+        print(f"   ⚠️ Planner failed ({e}) — using fallback plan")
+        return {"plan": fallback_plan_queries(state["goal"])}

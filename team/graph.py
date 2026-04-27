@@ -10,99 +10,111 @@
 # The graph is built using the StateGraph class, which manages the nodes and edges, and
 #  compiles it into a runnable pipeline.
 
+# team/graph.py
+# 🕸️ THE GRAPH (Team Wiring)
+# Connects all agents into one pipeline.
+# Pipeline: brief → plan → search → fact_check → claim_build → budget_check → write → END
+# No business logic here — only structure and routing.
 
 from langgraph.graph import StateGraph, END
 
 from team.state import ResearchAgentState
+from team.brief import brief_agent
 from team.planner import planner_agent
 from team.searcher import searcher_agent
-from team.writer import writer_agent
 from team.factchecker import fact_checker_agent
+from team.claimbuilder import claim_builder_agent
+from team.writer import writer_agent
 
-# 🚦 THE ROUTER (The Quality Manager)
-# Logic: Check if we have enough quality findings.
-# IF findings >= 2 → enough data, go to Writer.
-# IF searches >= 3 → safety limit hit, go to Writer.
-# ELSE → keep searching.
+
+# 🚦 ROUTER
 def router(state: ResearchAgentState) -> str:
+    """
+    Decides: search more or move forward.
+    Compares searches_done count to plan size.
+    """
     searches_done = len(state["searches_done"])
     plan_size = len(state["plan"])
 
-    # All planned searches completed → write
     if searches_done >= plan_size:
-        return "write"
-    # Safety limit → write
-    elif searches_done >= 3:
-        return "write"
-    # Still have searches to do → keep searching
-    return "search"
+        return "fact_check"   # all planned searches done
+    elif searches_done >= 8:
+        return "fact_check"   # hard safety limit
+    return "search"           # keep searching
 
 
-# 💰 BUDGET GUARD
-# Pure Python — no LLM, no cost, no latency.
-# Trims findings before they reach the writer to control token cost.
-MAX_TOKENS_ESTIMATE = 2000
+# 💰 BUDGET CHECK
+MAX_TOKENS_ESTIMATE = 4000  # increased for structured findings
 
-def budget_check(state: ResearchAgentState) -> ResearchAgentState:
-    """Guard node — trims findings if token budget exceeded."""
-    total_chars = sum(len(f) for f in state["findings"])
+def budget_check(state: ResearchAgentState) -> dict:
+    """
+    Guard node — trims findings if token budget exceeded.
+    Pure Python: no LLM, no cost, 0.00s latency.
+    Trims oldest findings first.
+    """
+    findings = list(state["findings"])
+
+    # Estimate tokens from all snippet text
+    total_chars = sum(
+        len(f.get("snippet", "") if isinstance(f, dict) else str(f))
+        for f in findings
+    )
     estimated_tokens = total_chars // 4
 
     if estimated_tokens > MAX_TOKENS_ESTIMATE:
         print(f"\n💰 BUDGET: ~{estimated_tokens} tokens estimated. Trimming...")
-        while sum(len(f) for f in state["findings"]) // 4 > MAX_TOKENS_ESTIMATE:
-            state["findings"].pop(0)
-        print(f"   ✅ Trimmed to {len(state['findings'])} findings")
+        while findings:
+            total_chars = sum(
+                len(f.get("snippet", "") if isinstance(f, dict) else str(f))
+                for f in findings
+            )
+            if total_chars // 4 <= MAX_TOKENS_ESTIMATE:
+                break
+            findings.pop(0)  # trim oldest first
+        print(f"   ✅ Trimmed to {len(findings)} findings")
 
-    return state
+    return {"findings": findings}
+
 
 def build_graph() -> StateGraph:
     """
-    Build and compile the multi-agent research graph.
-    Returns a compiled runnable pipeline.
-    
+    Build and compile the FactCrafter pipeline.
+
     Flow:
-    planner → searcher → [router] → budget_check → writer → END
-                ↑______________|
-                (loops if not enough findings)
+    brief → plan → search → [router] → fact_check
+                     ↑___________|
+                                 ↓
+                          claim_build → budget_check → write → END
     """
     graph = StateGraph(ResearchAgentState)
 
-    # 🧩 REGISTER ALL AGENTS AS NODES
+    # 🧩 REGISTER ALL NODES
+    graph.add_node("brief", brief_agent)
     graph.add_node("plan", planner_agent)
     graph.add_node("search", searcher_agent)
     graph.add_node("fact_check", fact_checker_agent)
+    graph.add_node("claim_build", claim_builder_agent)
     graph.add_node("budget_check", budget_check)
     graph.add_node("write", writer_agent)
 
     # 🔗 DEFINE THE FLOW
-    graph.set_entry_point("plan")
+    graph.set_entry_point("brief")
+    graph.add_edge("brief", "plan")
     graph.add_edge("plan", "search")
 
-    # Router decides: search more or move to fact check
+    # Router decides: search more or move to fact_check
     graph.add_conditional_edges("search", router, {
-        "search": "search",       # loop back
-        "write": "fact_check"     # enough data → fact check first
+        "search": "search",
+        "fact_check": "fact_check",
     })
 
-    # Fact check → budget check → writer → done
-    graph.add_edge("fact_check", "budget_check")
+    graph.add_edge("fact_check", "claim_build")
+    graph.add_edge("claim_build", "budget_check")
     graph.add_edge("budget_check", "write")
     graph.add_edge("write", END)
 
     return graph.compile()
 
+
 # Compile once at import time
-# All other files import this directly
 research_team = build_graph()
-
-
-# Note: This is called dependency direction — dependencies only flow one way. Lower layers never import from higher layers.
-# graph.py knows about everyone
-# but nobody else knows about graph.py
-
-# planner.py  ← knows only state + utils
-# searcher.py ← knows only state
-# writer.py   ← knows only state + utils
-# graph.py    ← knows everyone, wires them together
-# main.py     ← knows only graph

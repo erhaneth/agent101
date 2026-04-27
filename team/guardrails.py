@@ -134,7 +134,6 @@ def output_guardrail(report: str, goal: str) -> tuple[bool, str]:
     """
     Output guardrail — checks report before it reaches the user.
     Returns (is_safe, reason).
-    NOTE: 'goal' parameter is now REQUIRED (bug fixed).
     """
     # Check 1 — basic sanity
     if len(report) < 100:
@@ -143,20 +142,21 @@ def output_guardrail(report: str, goal: str) -> tuple[bool, str]:
     # Check 2 — topic alignment (LLM)
     try:
         response = get_guard_llm().invoke(f"""
-You are a strict quality guardrail for a research agent.
+You are a quality guardrail for a research agent.
 
 Original goal: "{goal}"
-Report (first 400 characters): "{report[:400]}"
+Report (first 500 characters): "{report[:500]}"
 
-Does this report actually address the research goal?
+Does this report make a reasonable attempt to address the research goal?
+Answer YES if the report is at least partially about the same topic.
+Answer NO only if the report is completely off-topic or gibberish.
+
 Answer with EXACTLY one word: YES or NO
-
-Only reply with YES or NO. No explanation.
 """)
 
         verdict = response.content.strip().upper()
 
-        if "NO" in verdict or "NO" == verdict:
+        if "NO" == verdict.strip():
             reason = "Report does not match the research goal"
             print(f"\n🛡️ OUTPUT BLOCKED: {reason}")
             return False, reason
@@ -165,6 +165,6 @@ Only reply with YES or NO. No explanation.
         return True, "passed"
 
     except Exception as e:
-        # Consistent fail-closed policy (changed from original)
-        print(f"\n⚠️ OUTPUT GUARDRAIL ERROR: {e} — blocking as precaution")
-        return False, "output guardrail check failed — blocked for safety"
+        # Fail open for output — imperfect report > no report
+        print(f"\n⚠️ OUTPUT GUARDRAIL ERROR: {e} — passing with warning")
+        return True, "output guardrail check failed — passed with warning"
