@@ -7,7 +7,6 @@
 # Everything else is wired automatically.
 
 
-import os
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -31,64 +30,38 @@ def run_research(goal: str) -> str:
         return f"❌ Request blocked by safety guardrail: {reason}"
 
     result = research_team.invoke(
-        {"goal": goal, "plan": [], "searches_done": [], "findings": [],
-         "verified_findings": [], "report": ""},
+        {
+            "goal": goal,
+            "brief": {},
+            "plan": [],
+            "searches_done": [],
+            "findings": [],
+            "verified_findings": [],
+            "rejected_findings": [],
+            "claims": [],
+            "report": "",
+            "evaluation": {},
+        },
         config={
             "tags": ["research", "production"],
             "metadata": {"user_id": "husseyin", "agent_version": "2.1", "environment": "development"}
         }
     )
+    evaluation = result.get("evaluation", {})
 
+    if not evaluation.get("passes_grounding", False):
+        return (
+            "⚠️ Report failed grounding evaluation.\n\n"
+            f"Score: {evaluation.get('grounding_score', 0)}/100\n"
+            f"Reason: {evaluation.get('reason', 'Unknown')}\n"
+            f"Claim citation rate: {evaluation.get('claim_citation_rate', 0)}\n"
+            f"Support URL citation rate: {evaluation.get('support_url_citation_rate', 0)}\n\n"
+            "The report was not returned because FactCrafter requires cited, grounded output."
+        )
     # 🛡️ OUTPUT GUARDRAIL — check before returning
     is_safe, reason = output_guardrail(result["report"], goal)
     if not is_safe:
         return f"⚠️ Report failed quality check: {reason}"
-
-    print("\n" + "="*50)
-    print("📄 FINAL REPORT")
-    print("="*50)
-    print(result["report"])
-    return result["report"]
-    """
-    Run the full multi-agent research pipeline.
-    
-    Args:
-        goal: The research question to investigate.
-    
-    Returns:
-        The final synthesized report as a string.
-    """
-    print("\n" + "="*50)
-    print("🚀 RESEARCH TEAM STARTING")
-    print(f"📌 Goal: {goal}")
-    print("="*50)
-
-    result = research_team.invoke(
-        # Initial state — notebook starts empty
-        {
-            "goal": goal,
-            "plan": [],           # Planner fills this
-            "searches_done": [],  # Searcher fills this
-            "findings": [],       # Searcher fills this
-            "report": ""          # Writer fills this
-        },
-        # Run-level metadata for LangSmith
-        config={
-            "tags": ["research", "production"],
-            "metadata": {
-                "user_id": "researher_agents_team21",  # who ran this
-                "agent_version": "2.0",      # ← upgraded from 1.0!
-                "environment": "development",
-                "planner_model": os.getenv("PLANNER_MODEL", "gemini-2.5-flash-lite"),
-                "writer_model": os.getenv("WRITER_MODEL", "gemini-2.5-flash-lite"),
-            }
-        }
-    )
-
-    print("\n" + "="*50)
-    print("📄 FINAL REPORT")
-    print("="*50)
-    print(result["report"])
 
     return result["report"]
 
@@ -99,4 +72,8 @@ if __name__ == "__main__":
         user_goal = "Compare electric cars under $40k right now."
         print(f"No input provided. Using default goal: {user_goal}")
 
-    run_research(user_goal)
+    report = run_research(user_goal)
+    print("\n" + "="*50)
+    print("📄 FINAL REPORT")
+    print("="*50)
+    print(report)

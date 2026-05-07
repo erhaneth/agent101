@@ -18,14 +18,16 @@ def is_quota_or_model_error(err: Exception) -> bool:
     )
 
 
-def fallback_plan_queries(goal: str) -> List[str]:
-    """Emergency planner when Gemini is unavailable."""
+def fallback_plan_queries(goal: str) -> list:
+    """Universal fallback queries — works for any topic."""
     return [
-        goal,
-        f"recent research {goal}",
-        f"industry applications {goal}"
+        {"query": f"{goal} overview", "purpose": "overview", "priority": 1},
+        {"query": f"{goal} official data OR official source", "purpose": "primary source", "priority": 1},
+        {"query": f"{goal} latest news 2026", "purpose": "recent data", "priority": 2},
+        {"query": f"{goal} statistics report analysis", "purpose": "statistics", "priority": 2},
+        {"query": f"{goal} expert analysis", "purpose": "expert analysis", "priority": 2},
+        {"query": f"{goal} criticism risks limitations", "purpose": "criticism", "priority": 3},
     ]
-
 
 def fallback_report(goal: str, findings: List[str]) -> str:
     """Emergency writer when Gemini is unavailable."""
