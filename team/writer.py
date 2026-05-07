@@ -81,15 +81,28 @@ Supported claims (use ONLY these — do not add facts from memory):
 Write a clear, well-structured research report.
 
 Strict rules:
-- Use ONLY the supported claims above
-- Include source URLs next to important claims like this: [source](url)
-- Do not add facts from memory or training data
-- Clearly separate: fact (supported by evidence), interpretation (your reading), uncertainty
-- When confidence is low or caveat exists — say so explicitly
-- If claims conflict — explain the conflict, do not pick a side without evidence
-- If evidence is thin — say "evidence is limited" rather than speculating
-- Do not overstate conclusions
+- Use ONLY the supported claims above.
+- Do not add facts from memory or training data.
+- Do not overstate conclusions.
+- Clearly separate supported facts, interpretation, uncertainty, and caveats.
+- When confidence is low or a caveat exists, say so explicitly.
+- If evidence is thin, say "evidence is limited" rather than speculating.
+- If claims conflict, explain the conflict without picking a side unless the evidence supports it.
 
+Citation rules:
+- Every factual paragraph, bullet, or role-analysis block must include at least one inline source URL.
+- Use actual markdown source links inline, exactly like this: [source](https://example.com).
+- Do NOT cite claims as [CLAIM 1], [CLAIM 2], etc.
+- Do NOT rely on the Sources section for grounding. The Sources section is supplementary only.
+- The Direct Answer must contain at least two inline source links.
+- The Direct Answer must not introduce any factual claim that is not cited in the same paragraph.
+- The Conclusion must include at least one inline source link if it summarizes factual claims.
+- Cite the strongest and most relevant sources directly in the first paragraph, not only in Key Findings.
+
+Source-use rules:
+- Prefer high-confidence claims and stronger sources when choosing what to emphasize.
+- Do not cite a source next to a sentence unless that source directly supports the sentence.
+- If a claim has multiple support URLs, cite the strongest one or two; do not overload the paragraph with every URL.
 Structure your report exactly like this:
 
 ## Direct Answer

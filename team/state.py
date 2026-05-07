@@ -49,6 +49,20 @@ class SupportedClaim(TypedDict):
     claim: str
     support_urls: List[str]
     confidence: str # high, medium, low
+    
+class EvaluationResult(TypedDict):
+    """Created by evaluator_agent. Measures final report quality."""
+    metric: str
+    passes_grounding: bool
+    grounding_score: float
+    threshold: float
+    reason: str
+    total_claims: int
+    claims_with_sources: int
+    grounded_claim_count: int
+    ungrounded_claim_count: int
+    claim_citation_rate: float
+    support_url_citation_rate: float
 
 # ── MAIN STATE ──
 
@@ -73,3 +87,6 @@ class ResearchAgentState(TypedDict):
 
     # ── OUTPUT ──
     report: str                            # written by writer_agent
+    
+       # ── EVALUATION ──
+    evaluation : EvaluationResult                    # written by evaluator_agent

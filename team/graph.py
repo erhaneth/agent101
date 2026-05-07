@@ -25,6 +25,7 @@ from team.searcher import searcher_agent
 from team.factchecker import fact_checker_agent
 from team.claimbuilder import claim_builder_agent
 from team.writer import writer_agent
+from team.evaluator import evaluator_agent
 
 
 # 🚦 ROUTER
@@ -96,6 +97,7 @@ def build_graph() -> StateGraph:
     graph.add_node("claim_build", claim_builder_agent)
     graph.add_node("budget_check", budget_check)
     graph.add_node("write", writer_agent)
+    graph.add_node("evaluate", evaluator_agent)
 
     # 🔗 DEFINE THE FLOW
     graph.set_entry_point("brief")
@@ -111,7 +113,8 @@ def build_graph() -> StateGraph:
     graph.add_edge("fact_check", "claim_build")
     graph.add_edge("claim_build", "budget_check")
     graph.add_edge("budget_check", "write")
-    graph.add_edge("write", END)
+    graph.add_edge("write", "evaluate")
+    graph.add_edge("evaluate", END)
 
     return graph.compile()
 

@@ -40,13 +40,24 @@ def run_research(goal: str) -> str:
             "rejected_findings": [],
             "claims": [],
             "report": "",
+            "evaluation": {},
         },
         config={
             "tags": ["research", "production"],
             "metadata": {"user_id": "husseyin", "agent_version": "2.1", "environment": "development"}
         }
     )
+    evaluation = result.get("evaluation", {})
 
+    if not evaluation.get("passes_grounding", False):
+        return (
+            "⚠️ Report failed grounding evaluation.\n\n"
+            f"Score: {evaluation.get('grounding_score', 0)}/100\n"
+            f"Reason: {evaluation.get('reason', 'Unknown')}\n"
+            f"Claim citation rate: {evaluation.get('claim_citation_rate', 0)}\n"
+            f"Support URL citation rate: {evaluation.get('support_url_citation_rate', 0)}\n\n"
+            "The report was not returned because FactCrafter requires cited, grounded output."
+        )
     # 🛡️ OUTPUT GUARDRAIL — check before returning
     is_safe, reason = output_guardrail(result["report"], goal)
     if not is_safe:
