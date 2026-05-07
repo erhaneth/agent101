@@ -124,9 +124,9 @@ REASON: one short sentence
         return True, "passed"
 
     except Exception as e:
-        # Fail-safe: block on any error
-        print(f"\n⚠️ GUARDRAIL ERROR: {e} — blocking request as precaution")
-        return False, "guardrail check failed — blocked for safety"
+        # If deterministic rules passed, allow normal research to use downstream fallbacks.
+        print(f"\n⚠️ GUARDRAIL LLM ERROR: {e} — allowing rules-only approved request")
+        return True, "passed rules-only guardrail"
 
 
 @traceable(name="output_guardrail", tags=["guardrail", "output", "safety"])

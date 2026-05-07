@@ -7,7 +7,6 @@
 # Everything else is wired automatically.
 
 
-import os
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -31,8 +30,17 @@ def run_research(goal: str) -> str:
         return f"❌ Request blocked by safety guardrail: {reason}"
 
     result = research_team.invoke(
-        {"goal": goal, "plan": [], "searches_done": [], "findings": [],
-         "verified_findings": [], "report": ""},
+        {
+            "goal": goal,
+            "brief": {},
+            "plan": [],
+            "searches_done": [],
+            "findings": [],
+            "verified_findings": [],
+            "rejected_findings": [],
+            "claims": [],
+            "report": "",
+        },
         config={
             "tags": ["research", "production"],
             "metadata": {"user_id": "husseyin", "agent_version": "2.1", "environment": "development"}
@@ -44,61 +52,6 @@ def run_research(goal: str) -> str:
     if not is_safe:
         return f"⚠️ Report failed quality check: {reason}"
 
-    print("\n" + "="*50)
-    print("📄 FINAL REPORT")
-    print("="*50)
-    print(result["report"])
-    return result["report"]
-    """
-    Run the full multi-agent research pipeline.
-    
-    Args:
-        goal: The research question to investigate.
-    
-    Returns:
-        The final synthesized report as a string.
-    """
-    print("\n" + "="*50)
-    print("🚀 RESEARCH TEAM STARTING")
-    print(f"📌 Goal: {goal}")
-    print("="*50)
-
-    result = research_team.invoke(
-        # Initial state — notebook starts empty
-        {
-            "goal": goal,
-            "brief": {},          # Brief Agent fills this
-            "plan": [],           # Planner fills this
-            "searches_done": [],  # Searcher fills this
-            "findings": [],       # Searcher fills this
-            "verified_findings": [],  # Fact Checker fills this
-            "rejected_findings": [],  # Fact Checker fills this
-            "claims": [],         # Claim Builder fills this
-            "report": ""          # Writer fills this
-        },
-        # Run-level metadata for LangSmith
-        config={
-            "tags": ["research", "production"],
-            "metadata": {
-                "user_id": "researher_agents_team21",  # who ran this
-                "agent_version": "2.0",      # ← upgraded from 1.0!
-                "environment": "development",
-                "planner_model": os.getenv("PLANNER_MODEL", "gemini-2.5-flash-lite"),
-                "writer_model": os.getenv("WRITER_MODEL", "gemini-2.5-flash-lite"),
-            }
-        }
-    )
-
-    print(f"\n📊 Run summary:")
-    print(f"   Findings collected: {len(result['findings'])}")
-    print(f"   Verified: {len(result['verified_findings'])}")
-    print(f"   Rejected: {len(result['rejected_findings'])}")
-    print(f"   Claims extracted: {len(result['claims'])}")
-    print("\n" + "="*50)
-    print("📄 FINAL REPORT")
-    print("="*50)
-    print(result["report"])
-
     return result["report"]
 
 
@@ -108,4 +61,8 @@ if __name__ == "__main__":
         user_goal = "Compare electric cars under $40k right now."
         print(f"No input provided. Using default goal: {user_goal}")
 
-    run_research(user_goal)
+    report = run_research(user_goal)
+    print("\n" + "="*50)
+    print("📄 FINAL REPORT")
+    print("="*50)
+    print(report)

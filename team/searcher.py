@@ -5,6 +5,8 @@
 # Writes: findings, searches_done
 
 import os
+from urllib.parse import urlparse
+
 from langsmith import traceable
 from tavily import TavilyClient
 
@@ -19,6 +21,9 @@ def get_search_client():
 def classify_source_type(url: str, title: str) -> str:
     """Simple source classifier — gives evidence judge useful context."""
     text = f"{url} {title}".lower()
+    host = urlparse(url).netloc.lower()
+    if any(domain in host for domain in ["facebook.com", "instagram.com", "tiktok.com", "x.com", "twitter.com"]):
+        return "social"
     if ".gov" in text or "official" in text or "tuik" in text:
         return "official"
     if "reuters" in text or "apnews" in text or "bbc" in text or "bloomberg" in text:
@@ -30,6 +35,39 @@ def classify_source_type(url: str, title: str) -> str:
     if "blog" in text or "medium" in text or "substack" in text:
         return "blog"
     return "web"
+
+
+def should_skip_source(url: str, title: str, snippet: str) -> tuple[bool, str]:
+    """Reject sources that are too weak to become evidence."""
+    host = urlparse(url).netloc.lower()
+    blocked_domains = [
+        "facebook.com", "instagram.com", "tiktok.com",
+        "x.com", "twitter.com", "pinterest.com", "reddit.com",
+        "youtube.com", "youtu.be",
+        "medium.com",
+    ]
+    if any(domain in host for domain in blocked_domains):
+        return True, "social or forum source"
+
+    if "linkedin.com/posts" in url or "linkedin.com/pulse" in url:
+        return True, "LinkedIn post"
+
+    if len(snippet.strip()) < 80:
+        return True, "snippet too thin"
+
+    return False, ""
+
+
+def search_days_for_brief(brief: dict) -> int | None:
+    """Choose Tavily freshness window from the research brief."""
+    if not brief.get("freshness_required", True):
+        return None
+
+    research_type = brief.get("research_type", "")
+    if research_type in {"current_events", "market_analysis", "product_comparison", "policy_legal"}:
+        return 365
+
+    return 30
 
 
 @traceable(
@@ -47,6 +85,8 @@ def searcher_agent(state: ResearchAgentState) -> dict:
 
     findings = list(state["findings"])
     searches_done = list(state["searches_done"])
+    brief = state.get("brief", {})
+    days = search_days_for_brief(brief)
 
     for query_obj in state["plan"]:
 
@@ -67,17 +107,25 @@ def searcher_agent(state: ResearchAgentState) -> dict:
 
         try:
             client = get_search_client()
-            response = client.search(
-                query=query,
-                search_depth="basic",
-                max_results=3,
-                days=30  # only results from last 30 days
-            )
+            search_kwargs = {
+                "query": query,
+                "search_depth": "basic",
+                "max_results": 3,
+            }
+            if days is not None:
+                search_kwargs["days"] = days
+
+            response = client.search(**search_kwargs)
 
             for result in response.get("results", []):
                 title = result.get("title", "")
                 url = result.get("url", "")
                 snippet = result.get("content", "")[:500]
+                should_skip, reason = should_skip_source(url, title, snippet)
+                if should_skip:
+                    print(f"      ↳ skipped {url[:60]}... ({reason})")
+                    continue
+
                 source_type = classify_source_type(url, title)
 
                 findings.append({
@@ -95,6 +143,7 @@ def searcher_agent(state: ResearchAgentState) -> dict:
         except Exception as e:
             # Non-fatal — log and continue
             print(f"   ❌ Search failed for '{query[:40]}': {e}")
+            searches_done.append(query)
 
     print(f"   📦 Total findings: {len(findings)}")
     return {

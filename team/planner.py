@@ -89,6 +89,15 @@ Rules:
 - Avoid vague or duplicate queries
 - For must_cover topics in the brief, create specific queries
 
+Additional rules for job market / labor research:
+- At least one query must target an institutional source directly:
+  site:weforum.org OR site:bls.gov OR site:oecd.org OR site:mckinsey.com
+- At least one query must name specific job titles, not just 'future of work'
+  e.g. 'AI safety researcher job demand 2026' not 'AI jobs future'
+- Avoid queries that return think-piece articles:
+  do NOT include words like 'future of work' or 'AI revolution' alone
+- If must_cover contains job categories, create one query per category
+
 Return STRICT JSON only. No markdown, no backticks:
 [
   {{"query": "...", "purpose": "overview", "priority": 1}},

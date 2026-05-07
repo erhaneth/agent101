@@ -99,16 +99,20 @@ One paragraph directly answering the research goal.
 Bullet points of the most important supported claims with sources.
 
 ## Evidence-Based Analysis
-Deeper analysis organized by theme. Cite sources inline.
+For each job category mentioned in the claims, write:
+- Role name (specific title, not a broad cluster)
+- Why AGI won't replace it (name the mechanism, not just 'human skills')
+- Demand direction: Growing / Stable / Uncertain — cite source
+- What someone reading this should do now
 
 ## Uncertainties and Limitations
-What the evidence doesn't cover. Where sources conflict. What needs more research.
+What the evidence doesn't cover. Where sources conflict.
 
 ## Conclusion
-Brief summary. What is well-supported vs what remains uncertain.
+What is well-supported vs uncertain. One concrete takeaway for a job-seeker.
 
 ## Sources
-List all URLs cited in the report.
+List all URLs cited.
 """)
 
         report = response.content

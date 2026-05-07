@@ -98,6 +98,11 @@ Rules:
 - If sources disagree, create a claim explaining the disagreement
 - If evidence is thin, say so with a caveat
 - Aim for 5-10 claims covering the must_cover topics
+- Reject vague claims like 'AI skills will be in demand' — 
+  every claim must name at least one specific job title, salary figure, 
+  percentage, or named study/institution
+- If a source only supports a vague claim, mark confidence: low and 
+  add caveat: 'Source does not name specific roles or provide data'
 
 Return STRICT JSON only. No markdown, no backticks:
 [
