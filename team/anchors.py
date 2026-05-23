@@ -57,11 +57,22 @@ Topic: {brief.get("topic", goal)}
 Research type: {brief.get("research_type", "general")}
 
 Identify 3-5 canonical works, landmark studies, or named benchmarks that a
-domain expert answering this question would expect cited.
+domain expert would cite to ANSWER this specific question — not just works
+that are related to the topic area.
 
 Rules:
 - Name SPECIFIC artifacts: study names, paper titles, benchmark names,
   author names, organization reports.
+- Each anchor must directly inform the user's question. A benchmark that
+  measures hallucination is only an anchor if the user asked HOW TO measure
+  hallucination. If the user asked which approach reduces hallucination more,
+  the anchor must be a comparative study, not a measurement framework.
+- Prefer comparative studies, head-to-head benchmarks, and enterprise reports
+  over methodology papers. Methodology papers belong as anchors only when the
+  user is asking about methodology.
+- If the question asks "when does X outperform Y" or "what are tradeoffs",
+  anchors must be works that report comparison results — not works that
+  describe how comparisons are done.
 - Do NOT list generic categories like "academic papers" or "industry reports."
 - Only include works you are confident exist. If uncertain, skip it.
 - If the question has no obvious canonical works (very recent, very niche,
