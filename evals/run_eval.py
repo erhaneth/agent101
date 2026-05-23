@@ -196,6 +196,7 @@ def score_case(case: dict, state: dict) -> dict:
         "report_verification_passes": (state.get("report_verification", {}) or {}).get("passes"),
         "report_verification_support_rate": (state.get("report_verification", {}) or {}).get("support_rate"),
         "report_verification_unsupported_count": (state.get("report_verification", {}) or {}).get("unsupported_count"),
+        "report_repair_attempts": state.get("report_repair_attempts", 0),
         "source_fetch_ok": sum(
             1
             for finding in state.get("findings", []) or []
@@ -259,6 +260,7 @@ def write_case_artifacts(case_dir: Path, case: dict, state: dict, score: dict) -
     write_json(case_dir / "evaluation.json", state.get("evaluation", {}))
     write_json(case_dir / "report_verification.json", state.get("report_verification", {}))
     write_json(case_dir / "report_verifications.json", state.get("report_verifications", []))
+    write_json(case_dir / "report_repair_history.json", state.get("report_repair_history", []))
     write_json(case_dir / "score.json", score)
     (case_dir / "report.md").write_text(content_to_text(state.get("report", "")), encoding="utf-8")
 

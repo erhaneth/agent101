@@ -20,6 +20,7 @@ User Goal
   → Human Review Gate
   → Writer Agent
   → Post-Writer Citation Verifier
+  → Report Repair Agent (if needed)
   → Evaluator Agent
   → Final Report
 ```
@@ -36,6 +37,7 @@ User Goal
 * **Human Review Gate** — pauses high-stakes topics before writing when an interactive reviewer is available.
 * **Writer Agent** — writes the final report using only supported claims.
 * **Post-Writer Citation Verifier** — checks whether final report sentences are actually supported by their inline citations.
+* **Report Repair Agent** — removes or softens unsupported final-report wording, then sends the report back through citation verification.
 * **Evaluator Agent** — checks citation grounding and citation-link integrity before output.
 
 ---
@@ -50,6 +52,7 @@ User Goal
 * Claim-based writing to reduce hallucinations
 * Semantic claim verification before writing
 * Post-writer citation verification against cited source text
+* Citation repair loop for unsupported final-report wording
 * Human-in-the-loop review gate for high-stakes topics
 * Behavior evaluation harness with saved run artifacts
 * Per-run audit artifacts for normal research runs
@@ -97,6 +100,7 @@ User Goal
 │   ├── humanreview.py    # Human review gate for high-stakes topics
 │   ├── writer.py         # Final report writer
 │   ├── reportverifier.py # Post-writer citation/source support checks
+│   ├── reportrepair.py   # Repairs unsupported final-report wording
 │   ├── evaluator.py      # Citation grounding evaluation
 │   ├── artifacts.py      # Per-run audit artifact writer
 │   ├── cache.py          # File cache for search/fetch calls
@@ -217,6 +221,7 @@ rejected_claims.json
 human_review.json
 report_verification.json
 report_verifications.json
+report_repair_history.json
 evaluation.json
 report.md
 summary.json
@@ -302,13 +307,15 @@ This verifier extracts citation-bearing factual blocks from the report body, loo
 - `partial`
 - `unsupported`
 
-If the final report cites a URL that was not part of verified evidence, or if cited source text does not support the final wording, the grounding gate fails.
+If the final report cites a URL that was not part of verified evidence, or if cited source text does not support the final wording, the report is routed through one repair attempt by default. The repair agent removes or softens unsupported wording, then the verifier checks the revised report again. If it still fails, the grounding gate fails.
 
 Useful knobs:
 
 ```bash
 REPORT_VERIFIER_MODEL=gemini-3.1-flash-lite
 REPORT_VERIFIER_MAX_ITEMS=12
+REPORT_REPAIR_MODEL=gemini-3.1-flash-lite
+REPORT_REPAIR_MAX_ATTEMPTS=1
 ```
 
 ---

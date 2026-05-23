@@ -45,6 +45,8 @@ def format_claims(claims: list) -> str:
         urls_text = "\n  ".join(urls) if urls else "No source URLs provided"
         caveat = claim.get("caveat", "")
         confidence = claim.get("confidence", "medium")
+        verification_verdict = claim.get("verification_verdict", "not_provided")
+        verification_reason = claim.get("verification_reason", "")
 
         blocks.append(f"""
 EVIDENCE ITEM {i}
@@ -53,6 +55,12 @@ Supported statement:
 
 Confidence:
 {confidence}
+
+Verification verdict:
+{verification_verdict}
+
+Verification reason:
+{verification_reason or "No verifier reason provided."}
 
 Source URLs:
   {urls_text}
@@ -148,6 +156,9 @@ Core rules:
 - Every factual paragraph or bullet must include at least one inline source URL.
 - If a claim has a caveat, include the caveat naturally.
 - If evidence is limited, say evidence is limited.
+- If confidence is low or verification verdict is partial, use cautious language such as "available evidence suggests" or "one source indicates".
+- Do NOT turn partial claims into broad conclusions, best-practice claims, market consensus, or "clearly outperforms" statements.
+- Do NOT use article titles, nav headings, or adjacent page links as proof unless the source excerpt directly supports the factual sentence.
 - If sources conflict or are weak, say so.
 - Do not overstate evidence.
 - Do not make predictions unless the supported evidence explicitly supports them.

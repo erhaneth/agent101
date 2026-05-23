@@ -46,6 +46,7 @@ Each case can check:
 - minimum grounding score
 - citation integrity
 - whether semantic claim verification ran
+- whether post-writer citation verification passed
 - minimum verified finding count
 - minimum retained claim count
 - required report sections
@@ -63,6 +64,9 @@ evals/runs/<run_id>/
     case.json
     state.json
     evaluation.json
+    report_verification.json
+    report_verifications.json
+    report_repair_history.json
     score.json
     report.md
 ```

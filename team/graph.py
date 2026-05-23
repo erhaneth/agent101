@@ -13,8 +13,10 @@
 # team/graph.py
 # 🕸️ THE GRAPH (Team Wiring)
 # Connects all agents into one pipeline.
-# Pipeline: brief → plan → search → source_fetch → fact_check → claim_build → claim_verify → human_review → write → report_verify → evaluate → END
+# Pipeline: brief → plan → search → source_fetch → fact_check → claim_build → claim_verify → human_review → write → report_verify → repair/evaluate → END
 # No business logic here — only structure and routing.
+
+import os
 
 from langgraph.graph import StateGraph, END
 
@@ -29,6 +31,7 @@ from team.claimverifier import claim_verifier_agent
 from team.humanreview import human_review_agent
 from team.writer import writer_agent
 from team.reportverifier import report_verifier_agent
+from team.reportrepair import report_repair_agent
 from team.evaluator import evaluator_agent
 
 
@@ -81,6 +84,24 @@ def budget_check(state: ResearchAgentState) -> dict:
     return {"findings": findings}
 
 
+def route_after_report_verify(state: ResearchAgentState) -> str:
+    """Repair the report once when semantic citation verification fails."""
+    verification = state.get("report_verification", {}) or {}
+    try:
+        max_attempts = int(os.getenv("REPORT_REPAIR_MAX_ATTEMPTS", "1"))
+    except ValueError:
+        max_attempts = 1
+    attempts = int(state.get("report_repair_attempts", 0) or 0)
+
+    if verification.get("passes") or verification.get("skipped"):
+        return "evaluate"
+
+    if attempts >= max_attempts:
+        return "evaluate"
+
+    return "report_repair"
+
+
 def build_graph() -> StateGraph:
     """
     Build and compile the FactCrafter pipeline.
@@ -89,7 +110,9 @@ def build_graph() -> StateGraph:
     brief → plan → search → [router] → source_fetch → fact_check
                      ↑___________|
                                  ↓
-                          claim_build → claim_verify → human_review → budget_check → write → report_verify → evaluate → END
+                          claim_build → claim_verify → human_review → budget_check → write → report_verify
+                                                                                        ↘ repair ↗
+                                                                                          evaluate → END
     """
     graph = StateGraph(ResearchAgentState)
 
@@ -105,6 +128,7 @@ def build_graph() -> StateGraph:
     graph.add_node("budget_check", budget_check)
     graph.add_node("write", writer_agent)
     graph.add_node("report_verify", report_verifier_agent)
+    graph.add_node("report_repair", report_repair_agent)
     graph.add_node("evaluate", evaluator_agent)
 
     # 🔗 DEFINE THE FLOW
@@ -125,7 +149,11 @@ def build_graph() -> StateGraph:
     graph.add_edge("human_review", "budget_check")
     graph.add_edge("budget_check", "write")
     graph.add_edge("write", "report_verify")
-    graph.add_edge("report_verify", "evaluate")
+    graph.add_conditional_edges("report_verify", route_after_report_verify, {
+        "report_repair": "report_repair",
+        "evaluate": "evaluate",
+    })
+    graph.add_edge("report_repair", "report_verify")
     graph.add_edge("evaluate", END)
 
     return graph.compile()

@@ -27,6 +27,35 @@ from team.utils import content_to_text, strip_json_fences
 
 SUPPORTED_VERDICTS = {"supported", "partial"}
 
+STOPWORDS = {
+    "about",
+    "after",
+    "again",
+    "against",
+    "approach",
+    "between",
+    "could",
+    "different",
+    "enterprise",
+    "from",
+    "have",
+    "more",
+    "rather",
+    "report",
+    "should",
+    "source",
+    "their",
+    "there",
+    "these",
+    "this",
+    "through",
+    "using",
+    "where",
+    "which",
+    "with",
+    "would",
+}
+
 
 def get_report_verifier_llm():
     """Lazy load — after .env is loaded."""
@@ -58,6 +87,94 @@ def report_text_for_verification(block_text: str) -> str:
     text = re.sub(r"[*_`>#]", "", text)
     text = re.sub(r"\s+", " ", text)
     return text.strip()
+
+
+def keywords_for_text(text: str, limit: int = 16) -> list[str]:
+    """Extract query keywords used to find relevant source excerpts."""
+    tokens = re.findall(r"[a-zA-Z][a-zA-Z0-9-]{3,}", (text or "").lower())
+    counts = {}
+
+    for token in tokens:
+        if token in STOPWORDS:
+            continue
+        counts[token] = counts.get(token, 0) + 1
+
+    return [
+        token
+        for token, _ in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:limit]
+    ]
+
+
+def relevant_excerpt(source_text: str, query_text: str, max_chars: int = 2000) -> str:
+    """
+    Select a source excerpt likely to support/refute the report item.
+
+    Many web pages begin with nav menus. Sending only the first N characters can
+    hide the actual article body, so we score paragraphs against report keywords.
+    """
+    source_text = source_text or ""
+    if len(source_text) <= max_chars:
+        return source_text
+
+    keywords = keywords_for_text(query_text)
+    if not keywords:
+        return source_text[:max_chars]
+
+    paragraphs = [
+        paragraph.strip()
+        for paragraph in re.split(r"\n\s*\n", source_text)
+        if paragraph.strip()
+    ]
+    expanded_paragraphs = []
+    for paragraph in paragraphs:
+        if len(paragraph) > max_chars:
+            lines = [line.strip() for line in paragraph.splitlines() if line.strip()]
+            expanded_paragraphs.extend(lines or [paragraph[:max_chars]])
+        else:
+            expanded_paragraphs.append(paragraph)
+    paragraphs = expanded_paragraphs
+
+    scored = []
+    for index, paragraph in enumerate(paragraphs):
+        chunk_parts = paragraphs[index : index + 3]
+        chunk = "\n\n".join(chunk_parts)
+        lower = chunk.lower()
+        score = sum(1 for keyword in keywords if keyword in lower)
+        if "hybrid approach" in (query_text or "").lower() and "hybrid approach" in lower:
+            score += 3
+        if "semantic" in (query_text or "").lower() and "semantic" in lower:
+            score += 1
+        if "context" in (query_text or "").lower() and "context" in lower:
+            score += 1
+        if score:
+            density = score / max(len(chunk_parts), 1)
+            scored.append((score, density, index, chunk))
+
+    if not scored:
+        return source_text[:max_chars]
+
+    scored.sort(key=lambda item: (-item[0], -item[1], item[2]))
+    selected = []
+    selected_indexes = set()
+    total_length = 0
+
+    for _, _, index, chunk in scored:
+        candidate_indexes = set(range(index, min(index + 3, len(paragraphs))))
+        if candidate_indexes & selected_indexes:
+            continue
+        if total_length + len(chunk) > max_chars and selected:
+            continue
+
+        selected.append((index, chunk))
+        selected_indexes.update(candidate_indexes)
+        total_length += len(chunk) + 2
+
+        if total_length >= max_chars:
+            break
+
+    selected.sort(key=lambda item: item[0])
+    excerpt = "\n\n".join(paragraph for _, paragraph in selected)
+    return excerpt[:max_chars]
 
 
 def cited_report_items(report: str, max_items: int | None = None) -> list[dict]:
@@ -149,11 +266,12 @@ URL: {source["url"]}
 Source text: MISSING FROM VERIFIED SOURCES
 """)
             else:
+                excerpt = relevant_excerpt(source["evidence_text"], item["text"], max_chars=2200)
                 sources.append(f"""
 URL: {source["url"]}
 Title: {source["title"]}
 Source text:
-{source["evidence_text"][:1600]}
+{excerpt}
 """)
 
         prompt_items.append(f"""

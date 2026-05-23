@@ -96,6 +96,7 @@ def summarize_state(state: dict, run_id: str, artifact_dir: Path) -> dict:
         "report_verification_support_rate": report_verification.get("support_rate"),
         "report_verification_unsupported_count": report_verification.get("unsupported_count"),
         "report_verification_missing_source_url_count": report_verification.get("missing_source_url_count"),
+        "report_repair_attempts": state.get("report_repair_attempts", 0),
         "source_fetch_ok_count": sum(1 for finding in findings if finding.get("fetch_status") == "ok"),
         "source_fetch_weak_count": sum(1 for finding in findings if finding.get("fetch_status") == "weak"),
         "source_fetch_failed_count": sum(1 for finding in findings if finding.get("fetch_status") == "failed"),
@@ -128,6 +129,7 @@ def write_summary_markdown(path: Path, summary: dict) -> None:
         f"- Report citation verification: `{summary.get('report_verification_passes')}`",
         f"- Report citation support rate: `{summary.get('report_verification_support_rate')}`",
         f"- Unsupported/missing final citations: `{summary.get('report_verification_unsupported_count')}/{summary.get('report_verification_missing_source_url_count')}`",
+        f"- Report repair attempts: `{summary.get('report_repair_attempts')}`",
         f"- Sources fetched OK/weak/failed: `{summary['source_fetch_ok_count']}/{summary['source_fetch_weak_count']}/{summary['source_fetch_failed_count']}`",
         f"- Search/source cache hits: `{summary['search_cache_hit_count']}/{summary['source_cache_hit_count']}`",
     ]
@@ -176,6 +178,7 @@ def write_run_artifacts(
     write_json(artifact_dir / "human_review.json", state.get("human_review", {}))
     write_json(artifact_dir / "report_verification.json", state.get("report_verification", {}))
     write_json(artifact_dir / "report_verifications.json", state.get("report_verifications", []))
+    write_json(artifact_dir / "report_repair_history.json", state.get("report_repair_history", []))
     write_json(artifact_dir / "evaluation.json", state.get("evaluation", {}))
     write_json(artifact_dir / "summary.json", summary)
     write_json(artifact_dir / "state.json", state)

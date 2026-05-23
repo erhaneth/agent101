@@ -7,8 +7,10 @@ from team.cache import clear_cache, get_cached_json, set_cached_json
 from team.guardrails import input_guardrail
 from team.claimverifier import apply_verifications, source_blocks_for_claim, source_lookup
 from team.evaluator import apply_report_verification, evaluate_grounding, markdown_url_label_mismatches
+from team.graph import route_after_report_verify
 from team.humanreview import human_review_agent, is_high_stakes
-from team.reportverifier import build_records, cited_report_items
+from team.reportrepair import failed_report_items, remove_failed_report_items, report_repair_agent
+from team.reportverifier import build_records, cited_report_items, relevant_excerpt
 from team.sourcequality import rank_source, source_quality_passes
 from team.sourcefetcher import clean_text, fetch_and_parse_source, is_probably_bad_page, parse_html
 from team.searcher import (
@@ -332,6 +334,8 @@ class HardeningTests(unittest.TestCase):
             "rejected_claims": [],
             "report_verification": {"passes": True, "support_rate": 1.0},
             "report_verifications": [],
+            "report_repair_attempts": 0,
+            "report_repair_history": [],
             "evaluation": {"grounding_score": 91, "passes_grounding": True},
             "report": "## Direct Answer\nTest.\n\n## Sources\n",
             "input_guardrail_passed": True,
@@ -347,6 +351,24 @@ class HardeningTests(unittest.TestCase):
             self.assertTrue((artifact_dir / "state.json").exists())
             self.assertTrue((artifact_dir / "claim_verifications.json").exists())
             self.assertTrue((artifact_dir / "report_verification.json").exists())
+            self.assertTrue((artifact_dir / "report_repair_history.json").exists())
+
+    def test_report_verifier_selects_relevant_source_excerpt(self):
+        source_text = (
+            ("Navigation Pricing Login Demo\n" * 400)
+            + "\n"
+            "Unrelated paragraph about a product launch.\n\n"
+            "RAG enables attribution and auditability by grounding answers in retrieved documents. "
+            "Fine-tuning can improve style but does not provide source-level traceability."
+        )
+
+        excerpt = relevant_excerpt(
+            source_text,
+            "RAG enables attribution and auditability for enterprise answers.",
+        )
+
+        self.assertIn("RAG enables attribution", excerpt)
+        self.assertNotIn("Navigation Pricing", excerpt)
 
     def test_report_verifier_extracts_cited_report_items(self):
         report = (
@@ -441,6 +463,89 @@ class HardeningTests(unittest.TestCase):
         self.assertFalse(updated["passes_grounding"])
         self.assertFalse(updated["semantic_citation_passes"])
         self.assertLessEqual(updated["grounding_score"], 69.0)
+
+    def test_report_repair_removes_failed_report_items_in_fallback(self):
+        report = (
+            "## Key Findings\n"
+            "* Supported claim [source](https://example.com/a).\n"
+            "* Unsupported claim [source](https://example.com/b).\n\n"
+            "## Sources\n"
+            "https://example.com/a\n"
+            "https://example.com/b"
+        )
+        failed = [
+            {
+                "item_index": 2,
+                "start_line": 3,
+                "text": "Unsupported claim.",
+                "verdict": "unsupported",
+                "cited_urls": ["https://example.com/b"],
+            }
+        ]
+
+        repaired = remove_failed_report_items(report, failed)
+
+        self.assertIn("Supported claim", repaired)
+        self.assertNotIn("Unsupported claim", repaired)
+        self.assertIn("## Sources", repaired)
+
+    def test_report_repair_agent_fallback_records_attempt(self):
+        state = {
+            "goal": "test",
+            "claims": [],
+            "report": (
+                "## Key Findings\n"
+                "* Supported claim [source](https://example.com/a).\n"
+                "* Unsupported claim [source](https://example.com/b).\n\n"
+                "## Sources\n"
+                "https://example.com/a\n"
+                "https://example.com/b"
+            ),
+            "report_verifications": [
+                {
+                    "item_index": 2,
+                    "start_line": 3,
+                    "text": "Unsupported claim.",
+                    "verdict": "unsupported",
+                    "cited_urls": ["https://example.com/b"],
+                    "reason": "not supported",
+                }
+            ],
+            "report_repair_attempts": 0,
+            "report_repair_history": [],
+        }
+
+        with patch("team.reportrepair.get_report_repair_llm", side_effect=RuntimeError("model unavailable")):
+            result = report_repair_agent(state)
+
+        self.assertEqual(result["report_repair_attempts"], 1)
+        self.assertEqual(result["report_repair_history"][0]["method"], "fallback_remove_failed_blocks")
+        self.assertNotIn("Unsupported claim", result["report"])
+
+    def test_report_repair_route_retries_once_then_evaluates(self):
+        state = {
+            "report_verification": {"passes": False, "skipped": False},
+            "report_repair_attempts": 0,
+        }
+
+        with patch.dict("os.environ", {"REPORT_REPAIR_MAX_ATTEMPTS": "1"}):
+            self.assertEqual(route_after_report_verify(state), "report_repair")
+            self.assertEqual(
+                route_after_report_verify({**state, "report_repair_attempts": 1}),
+                "evaluate",
+            )
+
+    def test_failed_report_items_ignores_partial_and_supported(self):
+        failed = failed_report_items(
+            [
+                {"verdict": "supported", "missing_source_urls": []},
+                {"verdict": "partial", "missing_source_urls": []},
+                {"verdict": "partial", "missing_source_urls": ["https://example.com/missing"]},
+                {"verdict": "unsupported", "missing_source_urls": []},
+            ]
+        )
+
+        self.assertEqual(len(failed), 2)
 
     def test_file_cache_round_trip_and_clear(self):
         with TemporaryDirectory() as tmpdir:

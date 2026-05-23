@@ -38,6 +38,8 @@ def initial_state(goal: str) -> dict:
         "report": "",
         "report_verifications": [],
         "report_verification": {},
+        "report_repair_attempts": 0,
+        "report_repair_history": [],
         "evaluation": {},
     }
 

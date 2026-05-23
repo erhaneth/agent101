@@ -121,6 +121,13 @@ class ReportVerificationSummary(TypedDict):
     unsupported_count: int
     missing_source_url_count: int
     support_rate: float
+
+class ReportRepairRecord(TypedDict):
+    """Created by report_repair_agent. Records final-report repair attempts."""
+    attempt: int
+    method: str
+    failed_item_count: int
+    failed_item_indexes: List[int]
     
 class EvaluationResult(TypedDict):
     """Created by evaluator_agent. Measures final report quality."""
@@ -164,6 +171,8 @@ class ResearchAgentState(TypedDict):
     report: str                            # written by writer_agent
     report_verifications: List[ReportCitationVerification]  # written by report_verifier_agent
     report_verification: ReportVerificationSummary          # written by report_verifier_agent
+    report_repair_attempts: int                           # written by report_repair_agent
+    report_repair_history: List[ReportRepairRecord]        # written by report_repair_agent
     
        # ── EVALUATION ──
     evaluation : EvaluationResult                    # written by evaluator_agent
