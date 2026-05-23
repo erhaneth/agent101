@@ -26,6 +26,7 @@ def initial_state(goal: str) -> dict:
     return {
         "goal": goal,
         "brief": {},
+        "anchors": [],
         "plan": [],
         "searches_done": [],
         "findings": [],

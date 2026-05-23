@@ -109,7 +109,20 @@ Return STRICT JSON only. No markdown, no backticks:
         # Sort by priority
         plan = sorted(plan, key=lambda x: x.get("priority", 99))
 
-        print(f"   ✅ Created {len(plan)} queries")
+        # Prepend anchor queries at priority 1 — they search for named landmark works
+        anchors = state.get("anchors", []) or []
+        anchor_queries = [
+            {
+                "query": anchor["query"],
+                "purpose": f"landmark: {anchor['name']}",
+                "priority": 1,
+            }
+            for anchor in anchors
+            if anchor.get("query")
+        ]
+        plan = anchor_queries + plan
+
+        print(f"   ✅ Created {len(plan)} queries ({len(anchor_queries)} anchors + {len(plan) - len(anchor_queries)} generic)")
         for q in plan:
             print(f"   [{q['priority']}] {q['purpose']}: {q['query'][:60]}...")
 

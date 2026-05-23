@@ -153,6 +153,7 @@ class ResearchAgentState(TypedDict):
     brief: ResearchBrief                    # written by brief_agent
 
     # ── PLANNING ──
+    anchors: List[dict]                     # written by anchor_agent
     plan: List[SearchQuery]                 # written by planner_agent
     searches_done: List[str]               # written by searcher_agent (idempotency)
 

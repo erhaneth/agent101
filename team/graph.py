@@ -22,6 +22,7 @@ from langgraph.graph import StateGraph, END
 
 from team.state import ResearchAgentState
 from team.brief import brief_agent
+from team.anchors import anchor_agent
 from team.planner import planner_agent
 from team.searcher import searcher_agent
 from team.sourcefetcher import source_fetcher_agent
@@ -118,6 +119,7 @@ def build_graph() -> StateGraph:
 
     # 🧩 REGISTER ALL NODES
     graph.add_node("brief", brief_agent)
+    graph.add_node("anchors", anchor_agent)
     graph.add_node("plan", planner_agent)
     graph.add_node("search", searcher_agent)
     graph.add_node("source_fetch", source_fetcher_agent)
@@ -133,7 +135,8 @@ def build_graph() -> StateGraph:
 
     # 🔗 DEFINE THE FLOW
     graph.set_entry_point("brief")
-    graph.add_edge("brief", "plan")
+    graph.add_edge("brief", "anchors")
+    graph.add_edge("anchors", "plan")
     graph.add_edge("plan", "search")
 
     # Router decides: search more or move to fact_check

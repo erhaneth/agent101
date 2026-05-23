@@ -178,31 +178,45 @@ Universal structure rules:
 - If the question asks for technical differences, organize by architecture, developer experience, flexibility, orchestration, operations, and tradeoffs.
 - If none of those fit, organize by the main evidence themes.
 
-Required output sections:
+Report structure rules:
 
+You decide which sections to include based on the evidence you actually have.
+Do NOT force a fixed template. A short focused report with 2 sections is better
+than a padded report with 6 sections of filler.
+
+REQUIRED sections (always include):
 ## Direct Answer
-Answer the user's exact question directly in 1-2 paragraphs.
-Include inline citations for factual claims.
-
-## Key Findings
-Bullet points with the most important supported findings.
-Every bullet must include at least one inline source URL.
-
-## Evidence-Based Analysis
-Use headings and structure that fit this specific question.
-Cover the must_cover items when the evidence supports them.
-Each factual paragraph, bullet, or subsection must include inline source URLs.
-
-## Uncertainties and Limitations
-Explain what the evidence does not prove, where the evidence is weak, and what remains unclear.
-Use inline citations when referencing specific evidence limits.
-
-## Conclusion
-Summarize what is well-supported and what the reader should take away.
-Include inline citations if summarizing factual claims.
-
+  - Always present. 1-2 paragraphs answering the user's exact question.
+  - Include inline citations for any factual claims.
 ## Sources
-List every URL cited in the report.
+  - Always present. List every URL cited in the report.
+
+OPTIONAL sections (include ONLY when the evidence justifies them):
+## Key Findings
+  - Include ONLY if you have at least 3 high-confidence supported claims worth
+    enumerating beyond the Direct Answer. Otherwise OMIT.
+## Evidence-Based Analysis
+  - Include ONLY if you have at least 3 verified findings with substantive detail
+    to analyze. Otherwise OMIT.
+## Uncertainties and Limitations
+  - Include ONLY if you can name concrete, specific limits backed by the evidence
+    (e.g., "no source measured X", "estimates vary from N to M across two studies").
+  - Do NOT include generic disclaimers ("more research needed", "depends on context",
+    "no universal winner"). If you find yourself writing those, OMIT this section.
+## Conclusion
+  - Include ONLY if you have something substantive to summarize beyond what
+    Direct Answer already covered. If Direct Answer was complete, OMIT this section.
+
+Filler ban:
+- If you find yourself writing one of these phrases as a section's main content,
+  delete that section instead:
+    * "depends on the specific use case"
+    * "there is no universal winner"
+    * "no single best approach"
+    * "varies based on deployment"
+    * "the right approach depends on"
+- These phrases are signals that you don't actually have the evidence to fill that
+  section. Cutting them produces a stronger report.
 
 Final quality checks before answering:
 - Does this answer the user's actual question?
