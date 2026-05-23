@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: factcrafter-api
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: LANGSMITH_API_KEY
+        sync: false
+      - key: LANGSMITH_TRACING
+        value: "true"
+      - key: LANGSMITH_PROJECT
+        value: "factcrafter"
+      - key: GEMINI_MODEL
+        value: "gemini-3.1-flash-lite"
+      - key: BRIEF_MODEL
+        value: "gemini-3.1-flash-lite"
+      - key: PLANNER_MODEL
+        value: "gemini-3.1-flash-lite"
+      - key: CHECKER_MODEL
+        value: "gemini-3.1-flash-lite"
+      - key: CLAIM_MODEL
+        value: "gemini-3.1-flash-lite"
+      - key: WRITER_MODEL
+        value: "gemini-3.1-flash-lite"
+      - key: GROUNDING_THRESHOLD
+        value: "0.80"

@@ -19,9 +19,11 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from langsmith import traceable
 
 from team.state import ResearchAgentState
+from team.utils import content_to_text
 
 
 URL_RE = re.compile(r"https?://[^\s\]\)\}<\"']+", re.IGNORECASE)
+MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)", re.IGNORECASE)
 
 SOURCES_HEADING_RE = re.compile(
     r"(?im)^\s{0,3}#{1,6}\s*(sources|references|bibliography|works cited)\s*$"
@@ -147,12 +149,47 @@ def extract_urls(text: str) -> list[str]:
     return sorted(urls)
 
 
+def markdown_url_label_mismatches(text: str) -> list[dict]:
+    """
+    Find markdown links where the visible label is a URL but points elsewhere.
+
+    Example:
+    [https://source-a.example](https://source-b.example)
+    This is dangerous because it looks cited to a reader and to URL counters,
+    but the actual clickable citation goes to a different source.
+    """
+    mismatches = []
+
+    for match in MARKDOWN_LINK_RE.finditer(text or ""):
+        label = match.group(1).strip()
+        href = match.group(2).strip()
+        label_urls = extract_urls(label)
+
+        if not label_urls:
+            continue
+
+        normalized_href = normalize_url(href)
+        for label_url in label_urls:
+            if label_url != normalized_href:
+                mismatches.append(
+                    {
+                        "label_url": label_url,
+                        "href_url": normalized_href,
+                        "text_preview": match.group(0)[:220],
+                    }
+                )
+
+    return mismatches
+
+
 def split_report_body_and_sources(report: str) -> tuple[str, str]:
     """
     Split report into:
     - body: everything before the Sources/References section
     - sources: the Sources/References section and everything after it
     """
+    report = content_to_text(report)
+
     if not report:
         return "", ""
 
@@ -365,11 +402,13 @@ def evaluate_grounding(report: str, claims: list[dict], threshold: float = 0.70)
     Important:
     URLs in the Sources section are tracked, but they do NOT make a claim grounded.
     """
+    report = content_to_text(report)
     body_text, sources_text = split_report_body_and_sources(report)
 
     body_urls = set(extract_urls(body_text))
     sources_section_urls = set(extract_urls(sources_text))
     report_urls = set(extract_urls(report))
+    citation_mismatches = markdown_url_label_mismatches(report)
 
     claim_references = CLAIM_REFERENCE_RE.findall(body_text or "")
 
@@ -456,6 +495,7 @@ def evaluate_grounding(report: str, claims: list[dict], threshold: float = 0.70)
     passes_grounding = (
         claims_with_sources > 0
         and len(body_urls) > 0
+        and not citation_mismatches
         and claim_inline_citation_rate >= threshold
         and block_citation_rate >= threshold
     )
@@ -468,6 +508,8 @@ def evaluate_grounding(report: str, claims: list[dict], threshold: float = 0.70)
         reason = "Report cites URLs only in the Sources section, not inline in the body."
     elif len(body_urls) == 0:
         reason = "Report contains no inline citations."
+    elif citation_mismatches:
+        reason = "Report contains markdown citations whose visible URL points to a different linked URL."
     elif claim_references and not passes_grounding:
         reason = "Report uses claim references like [CLAIM 1] without enough inline source URLs."
     elif claim_inline_citation_rate < threshold:
@@ -516,6 +558,9 @@ def evaluate_grounding(report: str, claims: list[dict], threshold: float = 0.70)
 
         "uses_claim_references": bool(claim_references),
         "claim_reference_count": len(claim_references),
+        "citation_integrity_passes": not citation_mismatches,
+        "citation_mismatch_count": len(citation_mismatches),
+        "citation_mismatches": citation_mismatches,
 
         "body_urls": sorted(body_urls),
         "sources_section_urls": sorted(sources_section_urls),
@@ -533,6 +578,41 @@ def evaluate_grounding(report: str, claims: list[dict], threshold: float = 0.70)
         "uncited_factual_blocks": block_eval["uncited_factual_blocks"],
         "cited_factual_blocks": block_eval["cited_factual_blocks"],
     }
+
+
+def apply_report_verification(evaluation: dict, report_verification: dict | None) -> dict:
+    """
+    Merge post-writer semantic citation verification into grounding results.
+
+    The base evaluator checks citation presence/proximity. The report verifier
+    checks whether cited source text actually supports the final report wording.
+    """
+    report_verification = report_verification or {}
+    skipped = bool(report_verification.get("skipped", False))
+    semantic_passes = True if skipped else bool(report_verification.get("passes", True))
+
+    updated = dict(evaluation)
+    updated.update(
+        {
+            "semantic_citation_passes": semantic_passes,
+            "semantic_citation_skipped": skipped,
+            "semantic_citation_support_rate": report_verification.get("support_rate"),
+            "semantic_citation_checked_count": report_verification.get("total_items", 0),
+            "semantic_citation_unsupported_count": report_verification.get("unsupported_count", 0),
+            "semantic_citation_missing_source_url_count": report_verification.get("missing_source_url_count", 0),
+            "semantic_citation_reason": report_verification.get("reason", ""),
+        }
+    )
+
+    if not semantic_passes:
+        updated["passes_grounding"] = False
+        updated["grounding_score"] = min(float(updated.get("grounding_score", 0) or 0), 69.0)
+        updated["reason"] = (
+            "Post-writer citation verifier found final-report text that was not supported "
+            f"by its cited sources: {report_verification.get('reason', 'semantic citation verification failed')}"
+        )
+
+    return updated
 
 
 @traceable(
@@ -554,6 +634,7 @@ def evaluator_agent(state: ResearchAgentState) -> dict:
         claims=state.get("claims", []),
         threshold=threshold,
     )
+    evaluation = apply_report_verification(evaluation, state.get("report_verification", {}))
 
     print(f"   Grounding score: {evaluation['grounding_score']}/100")
     print(f"   Claim inline citation rate: {evaluation['claim_inline_citation_rate']}")
@@ -564,9 +645,17 @@ def evaluator_agent(state: ResearchAgentState) -> dict:
     print(f"   Support URL anywhere citation rate: {evaluation['support_url_anywhere_citation_rate']}")
     print(f"   Body URLs: {evaluation['body_url_count']}")
     print(f"   Sources-only support URLs: {evaluation['sources_only_support_url_count']}")
+    print(f"   Citation integrity: {'PASS' if evaluation['citation_integrity_passes'] else 'FAIL'}")
+    print(f"   Semantic citations: {'PASS' if evaluation['semantic_citation_passes'] else 'FAIL'}")
+    print(f"   Semantic citation support rate: {evaluation['semantic_citation_support_rate']}")
     print(f"   Uses [CLAIM n] references: {evaluation['uses_claim_references']}")
     print(f"   Verdict: {'PASS' if evaluation['passes_grounding'] else 'FAIL'}")
     print(f"   Reason: {evaluation['reason']}")
+
+    if evaluation["citation_mismatch_count"]:
+        print("   Citation mismatch previews:")
+        for mismatch in evaluation["citation_mismatches"][:3]:
+            print(f"   - visible {mismatch['label_url']} -> linked {mismatch['href_url']}")
 
     if evaluation["uncited_factual_block_count"]:
         print("   Uncited factual block previews:")

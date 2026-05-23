@@ -5,3 +5,5 @@ langchain-google-genai
 tavily-python
 langsmith
 python-dotenv
+requests
+pypdf

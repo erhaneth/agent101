@@ -14,13 +14,13 @@ from langsmith import traceable
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from team.state import ResearchAgentState
-from team.utils import fallback_report
+from team.utils import fallback_report, response_to_text
 
 
 def get_writer_llm():
     """Lazy load — after .env is loaded."""
     return ChatGoogleGenerativeAI(
-        model=os.getenv("WRITER_MODEL", "gemini-2.5-flash-lite"),
+        model=os.getenv("WRITER_MODEL", "gemini-3.1-flash-lite"),
         max_retries=3,
         request_timeout=60,
         temperature=0.0,
@@ -85,11 +85,28 @@ def writer_agent(state: ResearchAgentState) -> dict:
 
     It must not leak irrelevant templates from previous tasks.
     """
-    print(f"\n✍️  WRITER: Synthesizing {len(state['claims'])} supported claims...")
+    print(f"\n✍️  WRITER: Synthesizing {len(state.get('claims', []))} supported claims...")
 
     brief = state.get("brief", {})
     claims = state.get("claims", [])
+    human_review = state.get("human_review", {}) or {}
     claims_text = format_claims(claims)
+
+    if human_review.get("required") and human_review.get("approved") is False:
+        reasons = human_review.get("reasons", []) or []
+        decision = human_review.get("decision", "human review was not approved")
+        reasons_text = "\n".join(f"- {reason}" for reason in reasons) or "- human review required"
+        print("   ⛔ Human review was not approved — blocking report writing")
+        return {
+            "report": (
+                "## Report Blocked: Human Review Required\n\n"
+                "This high-stakes report was not written because human review is required before synthesis.\n\n"
+                f"Decision: {decision}\n\n"
+                "Reasons:\n"
+                f"{reasons_text}\n\n"
+                "Run the research in an interactive terminal for review, or change HITL_REVIEW_MODE only if this is appropriate for your workflow."
+            )
+        }
 
     if not claims:
         print("   ⚠️ No claims available — using fallback")
@@ -185,7 +202,7 @@ Final quality checks before answering:
 - Did you use only supported evidence?
 """)
 
-        report = response.content
+        report = response_to_text(response)
         print(f"   ✅ Report written: {len(report)} chars")
         return {"report": report}
 

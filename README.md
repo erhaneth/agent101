@@ -13,9 +13,14 @@ User Goal
   → Brief Agent
   → Planner Agent
   → Searcher Agent
+  → Source Fetcher Agent
   → Fact Checker Agent
   → Claim Builder Agent
+  → Claim Verifier Agent
+  → Human Review Gate
   → Writer Agent
+  → Post-Writer Citation Verifier
+  → Evaluator Agent
   → Final Report
 ```
 
@@ -24,9 +29,14 @@ User Goal
 * **Brief Agent** — classifies the user’s research goal, topic, freshness needs, and depth.
 * **Planner Agent** — creates targeted search queries based on the brief.
 * **Searcher Agent** — collects web evidence using Tavily.
+* **Source Fetcher Agent** — fetches and parses HTML/PDF source text before scoring.
 * **Fact Checker Agent** — scores sources for relevance, credibility, freshness, and usefulness.
 * **Claim Builder Agent** — extracts evidence-backed claims from verified findings.
+* **Claim Verifier Agent** — checks whether each cited source excerpt actually supports each claim.
+* **Human Review Gate** — pauses high-stakes topics before writing when an interactive reviewer is available.
 * **Writer Agent** — writes the final report using only supported claims.
+* **Post-Writer Citation Verifier** — checks whether final report sentences are actually supported by their inline citations.
+* **Evaluator Agent** — checks citation grounding and citation-link integrity before output.
 
 ---
 
@@ -34,8 +44,16 @@ User Goal
 
 * Multi-agent LangGraph workflow
 * Source-backed research reports
+* Source fetching and HTML/PDF parsing before evidence scoring
+* Deterministic source quality ranking plus LLM evidence judging
 * Evidence scoring and rejected-source tracking
 * Claim-based writing to reduce hallucinations
+* Semantic claim verification before writing
+* Post-writer citation verification against cited source text
+* Human-in-the-loop review gate for high-stakes topics
+* Behavior evaluation harness with saved run artifacts
+* Per-run audit artifacts for normal research runs
+* File-based caching for Tavily search and source fetch/parse results
 * Input and output guardrails
 * LangSmith tracing support
 * Fallbacks for model/API failures
@@ -50,6 +68,8 @@ User Goal
 * LangChain
 * Google Gemini
 * Tavily Search API
+* requests
+* pypdf
 * LangSmith
 * python-dotenv
 
@@ -60,14 +80,26 @@ User Goal
 ```text
 .
 ├── agent.py              # Older single-file prototype
+├── evals/
+│   ├── questions.jsonl   # Behavior eval cases
+│   ├── run_eval.py       # Eval runner and artifact writer
+│   └── README.md
 ├── README.md
 ├── team/
 │   ├── brief.py          # Research intent classifier
 │   ├── planner.py        # Search planner
 │   ├── searcher.py       # Tavily search agent
+│   ├── sourcefetcher.py  # Fetches/parses source pages and PDFs
+│   ├── sourcequality.py  # Deterministic source quality ranking
 │   ├── factchecker.py    # Evidence scoring
 │   ├── claimbuilder.py   # Supported claim extraction
+│   ├── claimverifier.py  # Semantic claim/source support checks
+│   ├── humanreview.py    # Human review gate for high-stakes topics
 │   ├── writer.py         # Final report writer
+│   ├── reportverifier.py # Post-writer citation/source support checks
+│   ├── evaluator.py      # Citation grounding evaluation
+│   ├── artifacts.py      # Per-run audit artifact writer
+│   ├── cache.py          # File cache for search/fetch calls
 │   ├── guardrails.py     # Input/output checks
 │   ├── graph.py          # LangGraph workflow
 │   ├── main.py           # CLI entry point
@@ -110,12 +142,12 @@ LANGSMITH_API_KEY=your_langsmith_api_key
 LANGSMITH_TRACING=true
 LANGSMITH_PROJECT=factcrafter
 
-BRIEF_MODEL=gemini-2.5-flash-lite
-PLANNER_MODEL=gemini-2.5-flash-lite
-CHECKER_MODEL=gemini-2.5-flash-lite
-CLAIM_MODEL=gemini-2.5-flash-lite
-WRITER_MODEL=gemini-2.5-flash-lite
-GEMINI_MODEL=gemini-2.5-flash-lite
+BRIEF_MODEL=gemini-3.1-flash-lite
+PLANNER_MODEL=gemini-3.1-flash-lite
+CHECKER_MODEL=gemini-3.1-flash-lite
+CLAIM_MODEL=gemini-3.1-flash-lite
+WRITER_MODEL=gemini-3.1-flash-lite
+GEMINI_MODEL=gemini-3.1-flash-lite
 ```
 
 LangSmith is optional but useful for debugging runs.
@@ -147,6 +179,140 @@ print(report)
 
 ---
 
+## Evaluation Harness
+
+List eval cases without spending API calls:
+
+```bash
+.venv/bin/python evals/run_eval.py --dry-run
+```
+
+Run the smoke eval:
+
+```bash
+.venv/bin/python evals/run_eval.py --tag smoke --limit 1
+```
+
+Each eval run saves artifacts under `evals/runs/<run_id>/`, including the report, final state, grounding evaluation, and pass/fail checks.
+
+---
+
+## Run Artifacts
+
+Normal research runs save an audit trail under `runs/<run_id>/` by default.
+
+Each run folder includes:
+
+```text
+input.json
+guardrails.json
+brief.json
+plan.json
+findings.json
+verified_findings.json
+rejected_findings.json
+claims.json
+claim_verifications.json
+rejected_claims.json
+human_review.json
+report_verification.json
+report_verifications.json
+evaluation.json
+report.md
+summary.json
+summary.md
+state.json
+```
+
+Disable artifact writing:
+
+```bash
+SAVE_RUN_ARTIFACTS=false .venv/bin/python -m team.main
+```
+
+Change the artifact directory:
+
+```bash
+RUN_ARTIFACT_DIR=/tmp/factcrafter-runs .venv/bin/python -m team.main
+```
+
+---
+
+## Caching
+
+FactCrafter caches expensive external calls by default:
+
+- Tavily search responses
+- fetched and parsed source pages/PDFs
+
+Default cache directory:
+
+```text
+.cache/factcrafter/
+```
+
+Disable caching:
+
+```bash
+FACTCRAFTER_CACHE_ENABLED=false .venv/bin/python -m team.main
+```
+
+Change the cache directory:
+
+```bash
+FACTCRAFTER_CACHE_DIR=/tmp/factcrafter-cache .venv/bin/python -m team.main
+```
+
+Tune TTLs:
+
+```bash
+FACTCRAFTER_SEARCH_CACHE_TTL_SECONDS=86400
+FACTCRAFTER_SOURCE_CACHE_TTL_SECONDS=604800
+```
+
+---
+
+## Human Review
+
+High-stakes topics such as legal, tax, medical, financial, safety, and eligibility questions cross a human review gate before writing.
+
+Default behavior:
+
+- interactive CLI: asks the user to approve verified claims before writing
+- noninteractive runs: blocks writing and records that no reviewer was available
+
+Modes:
+
+```bash
+HITL_REVIEW_MODE=auto      # default; review only high-stakes topics
+HITL_REVIEW_MODE=always    # always review
+HITL_REVIEW_MODE=required  # block if no interactive reviewer is available
+HITL_REVIEW_MODE=off       # disable review gate
+```
+
+---
+
+## Post-Writer Citation Verification
+
+After the writer creates the report, FactCrafter runs one more semantic check over the final answer.
+
+This verifier extracts citation-bearing factual blocks from the report body, looks up the verified source text behind each inline citation, and labels each cited report item as:
+
+- `supported`
+- `partial`
+- `unsupported`
+
+If the final report cites a URL that was not part of verified evidence, or if cited source text does not support the final wording, the grounding gate fails.
+
+Useful knobs:
+
+```bash
+REPORT_VERIFIER_MODEL=gemini-3.1-flash-lite
+REPORT_VERIFIER_MAX_ITEMS=12
+```
+
+---
+
 ## Output Format
 
 FactCrafter writes reports in this structure:
@@ -164,7 +330,7 @@ FactCrafter writes reports in this structure:
 
 ## Current Limitations
 
-* The fact checker scores sources, but does not yet fully verify each claim across multiple independent sources.
+* The claim verifier checks semantic support against available source excerpts, but does not yet verify each claim across multiple independent full documents.
 * Search freshness is currently strict and may not fit historical or evergreen topics.
 * Guardrail keyword rules may block some legitimate research requests.
 * The current interface is CLI-based.

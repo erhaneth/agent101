@@ -25,16 +25,16 @@ from langsmith import traceable
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from team.state import ResearchAgentState
-from team.utils import fallback_plan_queries
+from team.utils import fallback_plan_queries, strip_json_fences
 
 
-PLANNER_MODEL = os.getenv("PLANNER_MODEL", "gemini-2.5-flash-lite")
+PLANNER_MODEL = os.getenv("PLANNER_MODEL", "gemini-3.1-flash-lite")
 
 
 def get_planner_llm():
     """Lazy load — after .env is loaded."""
     return ChatGoogleGenerativeAI(
-        model=os.getenv("PLANNER_MODEL", "gemini-2.5-flash-lite"),
+        model=os.getenv("PLANNER_MODEL", "gemini-3.1-flash-lite"),
         max_retries=3,
         request_timeout=30,
         temperature=0.0,
@@ -89,15 +89,6 @@ Rules:
 - Avoid vague or duplicate queries
 - For must_cover topics in the brief, create specific queries
 
-Additional rules for job market / labor research:
-- At least one query must target an institutional source directly:
-  site:weforum.org OR site:bls.gov OR site:oecd.org OR site:mckinsey.com
-- At least one query must name specific job titles, not just 'future of work'
-  e.g. 'AI safety researcher job demand 2026' not 'AI jobs future'
-- Avoid queries that return think-piece articles:
-  do NOT include words like 'future of work' or 'AI revolution' alone
-- If must_cover contains job categories, create one query per category
-
 Return STRICT JSON only. No markdown, no backticks:
 [
   {{"query": "...", "purpose": "overview", "priority": 1}},
@@ -111,12 +102,7 @@ Return STRICT JSON only. No markdown, no backticks:
 ]
 """)
 
-        content = response.content.strip()
-        if content.startswith("```"):
-            content = content.split("```")[1]
-            if content.startswith("json"):
-                content = content[4:]
-        content = content.strip()
+        content = strip_json_fences(response)
 
         plan = json.loads(content)
 

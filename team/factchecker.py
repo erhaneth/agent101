@@ -13,12 +13,14 @@ from langsmith import traceable
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from team.state import ResearchAgentState
+from team.sourcequality import rank_source, source_quality_passes
+from team.utils import strip_json_fences
 
 
 def get_checker_llm():
     """Lazy load — after .env is loaded."""
     return ChatGoogleGenerativeAI(
-        model=os.getenv("CHECKER_MODEL", "gemini-2.5-flash-lite"),
+        model=os.getenv("CHECKER_MODEL", "gemini-3.1-flash-lite"),
         max_retries=2,
         request_timeout=20,
         temperature=0.0,
@@ -48,8 +50,60 @@ def score_passes(scores: dict, brief: dict) -> bool:
     return True
 
 
+def is_scientific_academic_brief(brief: dict) -> bool:
+    return brief.get("research_type") == "scientific_academic"
+
+
+def is_strong_scientific_source(url: str, source_type: str) -> bool:
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    path = parsed.path.lower()
+
+    if "blog" in host or "thereader." in host or "/blog" in path:
+        return False
+
+    weak_paths = (
+        "/topics/",
+        "/editor-resources/",
+        "/publish/article/",
+        "/the-reader/",
+    )
+    if any(part in path for part in weak_paths):
+        return False
+
+    strong_hosts = (
+        "arxiv.org",
+        "pubmed.ncbi.nlm.nih.gov",
+        "pmc.ncbi.nlm.nih.gov",
+        "doi.org",
+        "nature.com",
+        "science.org",
+        "springer.com",
+        "link.springer.com",
+        "onlinelibrary.wiley.com",
+        "tandfonline.com",
+        "sagepub.com",
+        "frontiersin.org",
+        "plos.org",
+        "mdpi.com",
+        "sciencedirect.com",
+        "jstor.org",
+    )
+    if any(domain in host for domain in strong_hosts):
+        return "sciencedirect.com" not in host or "/science/article/" in path
+
+    if host.endswith((".edu", ".ac.uk")):
+        return True
+
+    if path.endswith(".pdf") and source_type in {"academic", "official", "web"}:
+        return True
+
+    return source_type in {"academic", "official"}
+
+
 # team/factchecker.py — source_passes_static_checks()
-def source_passes_static_checks(url: str, source_type: str) -> tuple[bool, str]:
+def source_passes_static_checks(url: str, source_type: str, brief: dict | None = None) -> tuple[bool, str]:
+    brief = brief or {}
     host = urlparse(url).netloc.lower()
     blocked_domains = {
         "facebook.com", "instagram.com", "tiktok.com",
@@ -57,6 +111,7 @@ def source_passes_static_checks(url: str, source_type: str) -> tuple[bool, str]:
         "youtube.com", "youtu.be",           # ← ADD
         "medium.com",                         # ← ADD
         "substack.com",                       # ← ADD
+        "quora.com",
     }
     if source_type == "social" or any(domain in host for domain in blocked_domains):
         return False, "social or forum source is not strong evidence"
@@ -64,6 +119,20 @@ def source_passes_static_checks(url: str, source_type: str) -> tuple[bool, str]:
     # ← ADD: block LinkedIn posts specifically (profiles/companies are ok)
     if "linkedin.com/posts" in url or "linkedin.com/pulse" in url:
         return False, "LinkedIn post is not peer-reviewed evidence"
+
+    if is_scientific_academic_brief(brief):
+        weak_academic_hosts = {
+            "researchgate.net",
+            "academia.edu",
+            "sciencedirect.com",
+        }
+        if any(domain in host for domain in weak_academic_hosts):
+            if "sciencedirect.com" in host and "/science/article/" in url:
+                return True, ""
+            return False, "secondary academic profile or topic page is too weak for scientific evidence"
+
+        if not is_strong_scientific_source(url, source_type):
+            return False, "source is not strong enough for scientific-academic evidence"
 
     return True, ""
 
@@ -89,18 +158,42 @@ def fact_checker_agent(state: ResearchAgentState) -> dict:
     parsed = []
     for finding in state["findings"]:
         if isinstance(finding, dict):
-            parsed.append({
+            item = {
                 "title": finding.get("title", ""),
                 "url": finding.get("url", ""),
                 "snippet": finding.get("snippet", "")[:300],
+                "evidence_text": (finding.get("evidence_text") or finding.get("snippet", ""))[:1200],
+                "search_cache_status": finding.get("search_cache_status", "unknown"),
+                "fetched_text": finding.get("fetched_text", ""),
+                "fetch_status": finding.get("fetch_status", "not_fetched"),
+                "fetch_error": finding.get("fetch_error", ""),
+                "cache_status": finding.get("cache_status", "unknown"),
+                "http_status": finding.get("http_status", 0),
+                "content_type": finding.get("content_type", ""),
+                "final_url": finding.get("final_url", finding.get("url", "")),
+                "source_metadata": finding.get("source_metadata", {}),
                 "source_type": finding.get("source_type", "web"),
-            })
+            }
+            item.update(rank_source(item, brief))
+            parsed.append(item)
         else:
-            parsed.append({
+            item = {
                 "title": "", "url": "",
                 "snippet": str(finding)[:300],
+                "evidence_text": str(finding)[:1200],
+                "search_cache_status": "unknown",
+                "fetched_text": "",
+                "fetch_status": "not_fetched",
+                "fetch_error": "",
+                "cache_status": "unknown",
+                "http_status": 0,
+                "content_type": "",
+                "final_url": "",
+                "source_metadata": {},
                 "source_type": "web",
-            })
+            }
+            item.update(rank_source(item, brief))
+            parsed.append(item)
 
     # ── CHANGE 2: build ONE prompt with all findings ──
     findings_block = ""
@@ -110,7 +203,10 @@ FINDING {i}
 Title: {f["title"]}
 URL: {f["url"]}
 Source type: {f["source_type"]}
-Snippet: {f["snippet"]}
+Fetch status: {f["fetch_status"]}
+Cache status: search={f["search_cache_status"]}, source={f["cache_status"]}
+Source quality: {f["source_quality_score"]}/5 ({f["source_quality_category"]}) — {"; ".join(f["source_quality_reasons"][:3])}
+Evidence text: {f["evidence_text"]}
 """
 
     try:
@@ -156,12 +252,7 @@ STRICT JSON only — no markdown, no backticks:
 ]
 """)
 
-        content = response.content.strip()
-        if content.startswith("```"):
-            content = content.split("```")[1]
-            if content.startswith("json"):
-                content = content[4:]
-        content = content.strip()
+        content = strip_json_fences(response)
 
         scores_list = json.loads(content)
 
@@ -183,6 +274,20 @@ STRICT JSON only — no markdown, no backticks:
             "title": f["title"],
             "url": f["url"],
             "snippet": f["snippet"],
+            "evidence_text": f["evidence_text"],
+            "search_cache_status": f["search_cache_status"],
+            "fetched_text": f["fetched_text"],
+            "fetch_status": f["fetch_status"],
+            "fetch_error": f["fetch_error"],
+            "cache_status": f["cache_status"],
+            "http_status": f["http_status"],
+            "content_type": f["content_type"],
+            "final_url": f["final_url"],
+            "source_metadata": f["source_metadata"],
+            "source_quality_score": f["source_quality_score"],
+            "source_quality_category": f["source_quality_category"],
+            "source_quality_reasons": f["source_quality_reasons"],
+            "source_quality_hard_reject": f["source_quality_hard_reject"],
             "relevance_score": scores.get("relevance_score", 0),
             "credibility_score": scores.get("credibility_score", 0),
             "freshness_score": 0,
@@ -191,14 +296,17 @@ STRICT JSON only — no markdown, no backticks:
             "reason": scores.get("reason", ""),
         }
 
-        source_ok, source_reason = source_passes_static_checks(f["url"], f["source_type"])
+        source_ok, source_reason = source_passes_static_checks(f["url"], f["source_type"], brief)
+        quality_ok, quality_reason = source_quality_passes(f, brief)
 
-        if source_ok and score_passes(scores, brief):
+        if source_ok and quality_ok and score_passes(scores, brief):
             verified.append(result)
-            print(f"   ✅ Finding {i+1}: VERIFIED (r:{scores.get('relevance_score')}/c:{scores.get('credibility_score')}/u:{scores.get('usefulness_score')}) — {scores.get('reason', '')[:50]}")
+            print(f"   ✅ Finding {i+1}: VERIFIED (q:{f['source_quality_score']}/r:{scores.get('relevance_score')}/c:{scores.get('credibility_score')}/u:{scores.get('usefulness_score')}) — {scores.get('reason', '')[:50]}")
         else:
             if not source_ok:
                 result["reason"] = source_reason
+            elif not quality_ok:
+                result["reason"] = quality_reason
             rejected.append(result)
             print(f"   ❌ Finding {i+1}: REJECTED — {result.get('reason', '')[:50]}")
 

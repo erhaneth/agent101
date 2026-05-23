@@ -22,7 +22,7 @@ class ResearchAgentState(TypedDict):
     report: str         # Report: The final polished product.
 
 # 🧠 THE BRAIN
-MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
+MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
 llm = ChatGoogleGenerativeAI(
     model=MODEL_NAME,
     max_retries=3,

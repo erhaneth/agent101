@@ -13,7 +13,7 @@
 # team/graph.py
 # 🕸️ THE GRAPH (Team Wiring)
 # Connects all agents into one pipeline.
-# Pipeline: brief → plan → search → fact_check → claim_build → budget_check → write → END
+# Pipeline: brief → plan → search → source_fetch → fact_check → claim_build → claim_verify → human_review → write → report_verify → evaluate → END
 # No business logic here — only structure and routing.
 
 from langgraph.graph import StateGraph, END
@@ -22,9 +22,13 @@ from team.state import ResearchAgentState
 from team.brief import brief_agent
 from team.planner import planner_agent
 from team.searcher import searcher_agent
+from team.sourcefetcher import source_fetcher_agent
 from team.factchecker import fact_checker_agent
 from team.claimbuilder import claim_builder_agent
+from team.claimverifier import claim_verifier_agent
+from team.humanreview import human_review_agent
 from team.writer import writer_agent
+from team.reportverifier import report_verifier_agent
 from team.evaluator import evaluator_agent
 
 
@@ -38,9 +42,9 @@ def router(state: ResearchAgentState) -> str:
     plan_size = len(state["plan"])
 
     if searches_done >= plan_size:
-        return "fact_check"   # all planned searches done
+        return "source_fetch"   # all planned searches done
     elif searches_done >= 8:
-        return "fact_check"   # hard safety limit
+        return "source_fetch"   # hard safety limit
     return "search"           # keep searching
 
 
@@ -82,10 +86,10 @@ def build_graph() -> StateGraph:
     Build and compile the FactCrafter pipeline.
 
     Flow:
-    brief → plan → search → [router] → fact_check
+    brief → plan → search → [router] → source_fetch → fact_check
                      ↑___________|
                                  ↓
-                          claim_build → budget_check → write → END
+                          claim_build → claim_verify → human_review → budget_check → write → report_verify → evaluate → END
     """
     graph = StateGraph(ResearchAgentState)
 
@@ -93,10 +97,14 @@ def build_graph() -> StateGraph:
     graph.add_node("brief", brief_agent)
     graph.add_node("plan", planner_agent)
     graph.add_node("search", searcher_agent)
+    graph.add_node("source_fetch", source_fetcher_agent)
     graph.add_node("fact_check", fact_checker_agent)
     graph.add_node("claim_build", claim_builder_agent)
+    graph.add_node("claim_verify", claim_verifier_agent)
+    graph.add_node("human_review", human_review_agent)
     graph.add_node("budget_check", budget_check)
     graph.add_node("write", writer_agent)
+    graph.add_node("report_verify", report_verifier_agent)
     graph.add_node("evaluate", evaluator_agent)
 
     # 🔗 DEFINE THE FLOW
@@ -107,13 +115,17 @@ def build_graph() -> StateGraph:
     # Router decides: search more or move to fact_check
     graph.add_conditional_edges("search", router, {
         "search": "search",
-        "fact_check": "fact_check",
+        "source_fetch": "source_fetch",
     })
 
+    graph.add_edge("source_fetch", "fact_check")
     graph.add_edge("fact_check", "claim_build")
-    graph.add_edge("claim_build", "budget_check")
+    graph.add_edge("claim_build", "claim_verify")
+    graph.add_edge("claim_verify", "human_review")
+    graph.add_edge("human_review", "budget_check")
     graph.add_edge("budget_check", "write")
-    graph.add_edge("write", "evaluate")
+    graph.add_edge("write", "report_verify")
+    graph.add_edge("report_verify", "evaluate")
     graph.add_edge("evaluate", END)
 
     return graph.compile()

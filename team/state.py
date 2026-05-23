@@ -30,6 +30,20 @@ class SourceFinding(TypedDict):
      title: str
      url: str
      snippet: str
+     evidence_text: str
+     search_cache_status: str
+     fetched_text: str
+     fetch_status: str # ok, weak, failed, skipped
+     fetch_error: str
+     cache_status: str
+     http_status: int
+     content_type: str
+     final_url: str
+     source_metadata: dict
+     source_quality_score: int
+     source_quality_category: str
+     source_quality_reasons: List[str]
+     source_quality_hard_reject: bool
      source_type: str # news, research_paper, blog_post, product_page, etc.
         
 class VerifiedFinding(TypedDict):
@@ -37,6 +51,20 @@ class VerifiedFinding(TypedDict):
     title: str
     url: str
     snippet: str
+    evidence_text: str
+    search_cache_status: str
+    fetched_text: str
+    fetch_status: str
+    fetch_error: str
+    cache_status: str
+    http_status: int
+    content_type: str
+    final_url: str
+    source_metadata: dict
+    source_quality_score: int
+    source_quality_category: str
+    source_quality_reasons: List[str]
+    source_quality_hard_reject: bool
     relevance_score: int 
     credibility_score: int
     freshness_score: int
@@ -49,6 +77,50 @@ class SupportedClaim(TypedDict):
     claim: str
     support_urls: List[str]
     confidence: str # high, medium, low
+    caveat: Optional[str]
+
+class ClaimVerification(TypedDict):
+    """Created by claim_verifier_agent. Checks claim/source entailment."""
+    claim: str
+    support_urls: List[str]
+    verdict: str # supported | partial | unsupported
+    reason: str
+    caveat: Optional[str]
+
+class HumanReviewResult(TypedDict):
+    """Created by human_review_agent. Records high-stakes review gate decision."""
+    required: bool
+    approved: bool
+    mode: str
+    reasons: List[str]
+    decision: str
+    reviewer: str
+
+class ReportCitationVerification(TypedDict):
+    """Created by report_verifier_agent. Checks final report text against cited sources."""
+    item_index: int
+    kind: str
+    start_line: int
+    text: str
+    cited_urls: List[str]
+    known_source_urls: List[str]
+    missing_source_urls: List[str]
+    verdict: str # supported | partial | unsupported
+    supported_urls: List[str]
+    reason: str
+    caveat: Optional[str]
+
+class ReportVerificationSummary(TypedDict):
+    """Created by report_verifier_agent. Summarizes post-writer citation support."""
+    passes: bool
+    skipped: bool
+    reason: str
+    total_items: int
+    supported_count: int
+    partial_count: int
+    unsupported_count: int
+    missing_source_url_count: int
+    support_rate: float
     
 class EvaluationResult(TypedDict):
     """Created by evaluator_agent. Measures final report quality."""
@@ -84,9 +156,14 @@ class ResearchAgentState(TypedDict):
 
     # ── CLAIMS ──
     claims: List[SupportedClaim]           # written by claim_builder_agent
+    claim_verifications: List[ClaimVerification]  # written by claim_verifier_agent
+    rejected_claims: List[ClaimVerification]      # written by claim_verifier_agent
+    human_review: HumanReviewResult        # written by human_review_agent
 
     # ── OUTPUT ──
     report: str                            # written by writer_agent
+    report_verifications: List[ReportCitationVerification]  # written by report_verifier_agent
+    report_verification: ReportVerificationSummary          # written by report_verifier_agent
     
        # ── EVALUATION ──
     evaluation : EvaluationResult                    # written by evaluator_agent

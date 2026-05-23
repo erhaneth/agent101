@@ -12,14 +12,15 @@ from langsmith import traceable
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from team.state import ResearchAgentState
+from team.utils import strip_json_fences
 
 # 🧠 BRIEF AGENT'S OWN BRAIN
-BRIEF_MODEL = os.getenv("BRIEF_MODEL", "gemini-2.5-flash-lite")  # ← can be customized separately from planner/writer
+BRIEF_MODEL = os.getenv("BRIEF_MODEL", "gemini-3.1-flash-lite")  # ← can be customized separately from planner/writer
 
 def get_brief_llm(): 
     """Lazy load - after .env is loaded and only if this agent runs."""
     return ChatGoogleGenerativeAI(
-        model=os.getenv("BRIEF_MODEL", "gemini-2.5-flash-lite"),
+        model=os.getenv("BRIEF_MODEL", "gemini-3.1-flash-lite"),
         temperature=0.0,  # deterministic output for classification
         max_retries=3,  # retry attempts in case of failures
         request_timeout=30,  # seconds before timing out API calls
@@ -96,13 +97,8 @@ Return STRICT JSON only. No markdown, no explanation, no backticks:
 }}
 """)
 
-        # Clean response — remove markdown fences if present
-        content = response.content.strip()
-        if content.startswith("```"):
-            content = content.split("```")[1]
-            if content.startswith("json"):
-                content = content[4:]
-        content = content.strip()
+        # Clean response — normalize content blocks and remove markdown fences if present
+        content = strip_json_fences(response)
 
         brief = json.loads(content)
         print(f"   ✅ Research type: {brief['research_type']}")

@@ -12,12 +12,13 @@ from langsmith import traceable
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from team.state import ResearchAgentState
+from team.utils import strip_json_fences
 
 
 def get_claim_llm():
     """Lazy load — after .env is loaded."""
     return ChatGoogleGenerativeAI(
-        model=os.getenv("CLAIM_MODEL", "gemini-2.5-flash-lite"),
+        model=os.getenv("CLAIM_MODEL", "gemini-3.1-flash-lite"),
         max_retries=3,
         request_timeout=30,
         temperature=0.0,  # deterministic — no invention
@@ -28,11 +29,12 @@ def format_verified_sources(findings: list) -> str:
     """Format verified findings for the claim builder prompt."""
     blocks = []
     for i, f in enumerate(findings, start=1):
+        evidence_text = f.get("evidence_text") or f.get("snippet", "")
         blocks.append(f"""
 SOURCE {i}
 Title: {f.get("title", "unknown")}
 URL: {f.get("url", "")}
-Snippet: {f.get("snippet", "")[:400]}
+Evidence text: {evidence_text[:900]}
 Credibility: {f.get("credibility_score", 0)}/5
 Reason kept: {f.get("reason", "")}
 """)
@@ -98,11 +100,8 @@ Rules:
 - If sources disagree, create a claim explaining the disagreement
 - If evidence is thin, say so with a caveat
 - Aim for 5-10 claims covering the must_cover topics
-- Reject vague claims like 'AI skills will be in demand' — 
-  every claim must name at least one specific job title, salary figure, 
-  percentage, or named study/institution
-- If a source only supports a vague claim, mark confidence: low and 
-  add caveat: 'Source does not name specific roles or provide data'
+- Prefer claims with concrete details, named studies, explicit findings, measured effects, or clearly described mechanisms.
+- If a source only supports a broad or indirect claim, mark confidence: low and explain the limitation in the caveat.
 
 Return STRICT JSON only. No markdown, no backticks:
 [
@@ -121,12 +120,7 @@ Return STRICT JSON only. No markdown, no backticks:
 ]
 """)
 
-        content = response.content.strip()
-        if content.startswith("```"):
-            content = content.split("```")[1]
-            if content.startswith("json"):
-                content = content[4:]
-        content = content.strip()
+        content = strip_json_fences(response)
 
         claims = json.loads(content)
 

@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 from langsmith import traceable
 from tavily import TavilyClient
 
+from team.cache import get_cached_json, set_cached_json, ttl_seconds
 from team.state import ResearchAgentState
 
 
@@ -109,18 +110,28 @@ def searcher_agent(state: ResearchAgentState) -> dict:
             client = get_search_client()
             search_kwargs = {
                 "query": query,
-                "search_depth": "basic",
+                "search_depth": "advanced",
                 "max_results": 3,
+                "include_raw_content": True,
             }
             if days is not None:
                 search_kwargs["days"] = days
 
-            response = client.search(**search_kwargs)
+            search_ttl = ttl_seconds("FACTCRAFTER_SEARCH_CACHE_TTL_SECONDS", 24 * 60 * 60)
+            response = get_cached_json("tavily_search", search_kwargs, ttl=search_ttl)
+            search_cache_status = "hit" if response is not None else "miss"
+
+            if response is None:
+                response = client.search(**search_kwargs)
+                set_cached_json("tavily_search", search_kwargs, response)
+            else:
+                print(f"      ↳ cache hit for search")
 
             for result in response.get("results", []):
                 title = result.get("title", "")
                 url = result.get("url", "")
                 snippet = result.get("content", "")[:500]
+                raw_content = result.get("raw_content") or ""
                 should_skip, reason = should_skip_source(url, title, snippet)
                 if should_skip:
                     print(f"      ↳ skipped {url[:60]}... ({reason})")
@@ -134,6 +145,8 @@ def searcher_agent(state: ResearchAgentState) -> dict:
                     "title": title,
                     "url": url,
                     "snippet": snippet,
+                    "evidence_text": (raw_content or snippet)[:4000],
+                    "search_cache_status": search_cache_status,
                     "source_type": source_type,
                 })
 
