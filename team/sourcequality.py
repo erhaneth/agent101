@@ -53,6 +53,22 @@ ACADEMIC_HOST_HINTS = (
     "ieee.org",
 )
 
+# Reputable organizations whose primary research reports should be treated more leniently
+# in scientific_academic mode (even if hosted on .com or blog-like paths).
+REPUTABLE_RESEARCH_ORGS = (
+    "4dayweek.com",
+    "autonomy.work",
+    "jrc.ec.europa.eu",
+    "publications.jrc.ec.europa.eu",
+    "gov.uk",
+    "whitehouse.gov",
+    "oecd.org",
+    "worldbank.org",
+    "imf.org",
+    "who.int",
+    "un.org",
+)
+
 MAJOR_NEWS_HOST_HINTS = (
     "reuters.com",
     "apnews.com",
@@ -202,8 +218,13 @@ def rank_source(finding: dict, brief: dict | None = None) -> dict:
         "official_primary",
         "technical_primary",
     }:
-        score = min(score, 2)
-        reasons.append("scientific-academic brief requires academic, official, or technical primary evidence")
+        # Give a boost for known reputable research organizations
+        if any(org in host for org in REPUTABLE_RESEARCH_ORGS):
+            score = max(score, 3)
+            reasons.append("reputable research organization — boosted for scientific_academic use")
+        else:
+            score = min(score, 2)
+            reasons.append("scientific-academic brief requires academic, official, or technical primary evidence")
 
     if research_type == "policy_legal" and category == "official_primary":
         score = 5

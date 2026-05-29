@@ -15,6 +15,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 from team.state import ResearchAgentState
 from team.utils import fallback_report, response_to_text
+from team.evidence_map import format_evidence_map_for_writer
 
 
 def get_writer_llm():
@@ -100,6 +101,10 @@ def writer_agent(state: ResearchAgentState) -> dict:
     human_review = state.get("human_review", {}) or {}
     claims_text = format_claims(claims)
 
+    # Build rich evidence context for the writer
+    evidence_map = state.get("evidence_map") or {}
+    evidence_map_text = format_evidence_map_for_writer(evidence_map)
+
     if human_review.get("required") and human_review.get("approved") is False:
         reasons = human_review.get("reasons", []) or []
         decision = human_review.get("decision", "human review was not approved")
@@ -131,6 +136,10 @@ You are the report writer for FactCrafter, an evidence-first research agent.
 Your job:
 Write a clear, useful, source-backed answer to the user's exact question.
 
+**Use the research brief signals heavily:**
+- `target_depth`: "deep" means the user wants substantial analysis and structure — deliver it.
+- `hype_sensitivity`: "high" means you must critically dissect marketing claims vs real evidence (this is one of the most important signals for this system).
+
 User goal:
 {state["goal"]}
 
@@ -138,11 +147,15 @@ Research brief:
 Topic: {brief.get("topic", state["goal"])}
 Research type: {brief.get("research_type", "general_explainer")}
 Target depth: {brief.get("target_depth", "standard")}
+Hype sensitivity: {brief.get("hype_sensitivity", "medium")}
 Must cover: {brief.get("must_cover", [])}
 Avoid: {brief.get("avoid", [])}
 
 Supported evidence:
 {claims_text}
+
+Evidence Quality Summary (use this to ground your analysis of source strength):
+{evidence_map_text}
 
 Core rules:
 - Use ONLY the supported evidence items above.
@@ -153,7 +166,7 @@ Core rules:
 - The Sources section is not enough. Important factual claims must have inline citations in the body.
 - The Direct Answer must include inline citations if it makes factual claims.
 - The Conclusion must include inline citations if it summarizes factual claims.
-- Every factual paragraph or bullet must include at least one inline source URL.
+- Every factual paragraph or bullet must include at least one inline source URL, **except** inside the Evidence Quality Map section (see the detailed special rule at the end of these instructions). The Evidence Quality Map may present its aggregate statistics using tables and bullets without per-row citations.
 - If a claim has a caveat, include the caveat naturally.
 - If evidence is limited, say evidence is limited.
 - If confidence is low or verification verdict is partial, use cautious language such as "available evidence suggests" or "one source indicates".
@@ -180,32 +193,91 @@ Universal structure rules:
 
 Report structure rules:
 
-You decide which sections to include based on the evidence you actually have.
-Do NOT force a fixed template. A short focused report with 2 sections is better
-than a padded report with 6 sections of filler.
+**MANDATORY SECTION REQUIREMENTS FOR scientific_academic / technical_research / policy_legal (non-negotiable):**
+When research_type is scientific_academic, technical_research, or policy_legal, you MUST produce a rich, analytical report with these exact sections in this order (do not omit any):
+1. Direct Answer (with inline citations)
+2. Evidence Quality Map (using the exact data and numbers from the EVIDENCE QUALITY MAP block below — table + quantitative bullets required)
+3. Key Findings or Evidence Analysis (synthesis of the verified claims)
+4. Key Tensions & Conflicting Evidence (or Evaluation and Methodology)
+5. Synthesis & Implications (or The Debate / Uncertainties)
+6. Sources
+
+The Evidence Quality Map is the single most important new section for these research types. It must appear as a full dedicated section immediately after the Direct Answer. It must contain a markdown table of the quality/credibility/source-type stats plus bullets for strengths and gaps. Use the precise numbers from the provided EVIDENCE QUALITY MAP data. Failure to include this section means the report is incomplete for scientific research use.
+
+**CITATION HYGIENE RULE — STRICT FOR scientific_academic / technical_research / policy_legal:**
+Every factual statement, analytical claim, comparison, or implication in the following sections MUST be immediately followed by a proper inline citation using a full support URL from the verified claims:
+- Evidence Quality Map (except the aggregate stats table/bullets, which are exempt)
+- Hype vs Evidence Analysis
+- Key Tensions & Conflicting Evidence
+- Synthesis & Implications
+- Any Evidence-Based Analysis or Key Findings bullets
+
+Citation formatting must be clean and professional:
+- Never use placeholder text like `[source]`, `[source](url)`, or bare "source" links.
+- Preferred: bare full URL (https://...) right after the sentence.
+- Also acceptable: proper markdown `[short descriptive text](https://full-url)`.
+- If you cannot directly support a sentence with one of the provided verified claim URLs, remove or rephrase the sentence.
+This rule is non-negotiable for these research types to maintain 100/100 grounding on rich analytical output.
+
+**CRITICAL DEPTH INSTRUCTIONS (for target_depth == "deep" or hype_sensitivity == "high" or research_type in {"scientific_academic", "technical_research", "policy_legal"}):**
+This is a high-value research request. You must produce a substantially deeper, more analytical, and evidence-rich report.
+
+Key requirements:
+- Use 7–10 well-structured sections.
+- The **Evidence Quality Map** must be a prominent, dedicated section (not just a passing mention).
+- You are required to directly reference the specific numbers and insights from the "EVIDENCE QUALITY MAP" block provided above (quality score distribution, high-quality source counts, average credibility, key gaps, and strengths).
+- Do genuine synthesis and critical analysis — do not just list claims.
+- For hype_sensitivity == "high": The Hype vs Evidence Analysis section must be one of the longest, most detailed, and most critical sections in the entire report. Systematically dismantle specific overstated claims using the Evidence Quality Map data. This is a core deliverable for these queries.
+
+You are allowed (and encouraged) to write longer, more thoughtful analysis when the brief signals deep/high-hype or when the research_type is scientific_academic, technical_research, or policy_legal. For these research types, treat the request as requiring full analytical depth even if target_depth is "standard". Quality analysis and transparent evidence assessment are more important than brevity.
 
 REQUIRED sections (always include):
 ## Direct Answer
-  - Always present. 1-2 paragraphs answering the user's exact question.
+  - Always present. 1-3 paragraphs answering the user's exact question with appropriate depth.
   - Include inline citations for any factual claims.
 ## Sources
   - Always present. List every URL cited in the report.
 
+HIGHLY RECOMMENDED / REQUIRED for deep, high-hype, scientific_academic, technical_research, or policy_legal questions:
+
+## Evidence Quality Map (ABSOLUTELY MANDATORY — the single most important section for scientific_academic, technical_research, and policy_legal reports; do not omit under any circumstances)
+  - This section is **mandatory** — you must include it as a dedicated section. Do not skip or merge it away even if the number of verified claims is small.
+  - You have **explicit permission** to present the aggregate data from the EVIDENCE QUALITY MAP block using tables and structured bullets **without** adding an inline citation to every row or bullet.
+  - Strongly recommended structure (use this format):
+    - One short opening paragraph using framing language (e.g. "Analysis of the verified findings shows...").
+    - A small markdown table for the key aggregate metrics.
+    - Clear bullet sections for Quality Score Distribution, Source Type Breakdown, and Key Insights (Strengths, Gaps, Diversity).
+  - Be quantitative. Directly reference the exact numbers from the provided map.
+  - Use analytical framing language for the entire section.
+  - This section exists to give the reader an honest, transparent view of how strong (or limited) the underlying evidence actually is. Include it even when evidence is thin.
+
+## Hype vs Evidence Analysis (MANDATORY when hype_sensitivity == "high"; strongly encouraged for scientific_academic when relevant)
+  - This must be one of the strongest, longest, and most critical sections in the entire report.
+  - Every analytical sentence must carry an immediate inline citation from the verified claims (see CITATION HYGIENE RULE above).
+  - Systematically identify specific marketing claims / vendor narratives / popular statistics, then directly contrast them with what the verified evidence (and Evidence Quality Map) actually supports.
+  - Explicitly call out overstated numbers, weak sources behind popular claims, and where marketing diverges from rigorous data.
+  - Use the Evidence Quality Map data to explain why certain claims are weakly supported (e.g. "The widely cited 8x–12x efficiency gains come primarily from vendor case studies and low-quality sources, while broad independent field studies show only a 26% aggregate gain").
+  - Be direct, specific, and evidence-based. Avoid hedging. Structure with clear sub-bullets for individual myths vs reality where helpful.
+  - Every sentence must end with a clean inline citation (bare URL or proper markdown link) — no [source] placeholders allowed anywhere in this section.
+  - Example strong tone: "Marketing frequently claims '10x developer productivity.' However, the highest-quality multi-company study available shows only a 26.08% increase in completed tasks, with experienced developers sometimes experiencing a 19% slowdown due to review overhead."
+
+## Key Tensions & Conflicting Evidence
+  - Every statement must carry an immediate inline citation from the verified claims (see CITATION HYGIENE RULE above).
+  - Explicitly surface disagreements, scope differences (e.g. benchmark vs real projects), and areas where evidence is thin or contradictory.
+
 OPTIONAL sections (include ONLY when the evidence justifies them):
 ## Key Findings
-  - Include ONLY if you have at least 3 high-confidence supported claims worth
-    enumerating beyond the Direct Answer. Otherwise OMIT.
+  - Include when there are clear, high-value takeaways worth enumerating.
 ## Evidence-Based Analysis
-  - Include ONLY if you have at least 3 verified findings with substantive detail
-    to analyze. Otherwise OMIT.
+  - Deeper analysis of mechanisms, tradeoffs, or patterns in the evidence.
 ## Uncertainties and Limitations
-  - Include ONLY if you can name concrete, specific limits backed by the evidence
-    (e.g., "no source measured X", "estimates vary from N to M across two studies").
-  - Do NOT include generic disclaimers ("more research needed", "depends on context",
-    "no universal winner"). If you find yourself writing those, OMIT this section.
+  - Include ONLY if you can name concrete, specific limits backed by the evidence.
+  - Avoid generic disclaimers.
+## Synthesis & Implications
+  - Every implication or recommendation must be directly tied to specific verified findings with inline citations (see CITATION HYGIENE RULE above).
+  - For deep reports: What does this evidence suggest for decision makers or practitioners?
 ## Conclusion
-  - Include ONLY if you have something substantive to summarize beyond what
-    Direct Answer already covered. If Direct Answer was complete, OMIT this section.
+  - Only if it adds real value beyond the Direct Answer.
 
 Filler ban:
 - If you find yourself writing one of these phrases as a section's main content,
@@ -222,9 +294,18 @@ Final quality checks before answering:
 - Does this answer the user's actual question?
 - Are all sections relevant to the user's question?
 - Did you avoid irrelevant templates from other domains?
-- Did every factual block include inline source URLs?
-- Did you avoid [CLAIM n] / EVIDENCE ITEM citations?
 - Did you use only supported evidence?
+
+Special rule for the Evidence Quality Map section (IMPORTANT):
+- This is the **only** section where the normal citation rules are relaxed.
+- You have explicit permission to present the aggregate statistics from the EVIDENCE QUALITY MAP data (quality distribution, credibility averages, high-quality counts, source diversity, strengths, and gaps) using markdown tables and structured bullet points **without** adding an inline source URL to every row or bullet.
+- You must use clear analytical framing language for the entire section, such as:
+  - "Analysis of the verified findings shows..."
+  - "The body of evidence indicates..."
+  - "A notable characteristic of the evidence base is..."
+- Only reference the exact numbers provided in the EVIDENCE QUALITY MAP block — do not invent or extrapolate new numbers.
+- This exception exists because the Evidence Quality Map is a meta-analysis of the overall evidence base we gathered, not new factual claims drawn from individual sources.
+- Every other section in the report (Direct Answer, Hype vs Evidence Analysis, Key Tensions, etc.) must still follow the standard rule of including inline source URLs for factual statements.
 """)
 
         report = response_to_text(response)

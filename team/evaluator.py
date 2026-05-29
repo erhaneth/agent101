@@ -29,6 +29,10 @@ SOURCES_HEADING_RE = re.compile(
     r"(?im)^\s{0,3}#{1,6}\s*(sources|references|bibliography|works cited)\s*$"
 )
 
+EVIDENCE_QUALITY_MAP_HEADING_RE = re.compile(
+    r"(?im)^\s{0,3}#{1,6}\s*evidence quality map\s*$"
+)
+
 HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+.+$")
 TOP_LEVEL_LIST_RE = re.compile(r"^\s{0,3}([-*+]|\d+\.)\s+")
 CLAIM_REFERENCE_RE = re.compile(r"\[CLAIM\s+\d+\]", re.IGNORECASE)
@@ -199,6 +203,35 @@ def split_report_body_and_sources(report: str) -> tuple[str, str]:
         return report, ""
 
     return report[: match.start()], report[match.start() :]
+
+
+def strip_evidence_quality_map_section(text: str) -> str:
+    """
+    Remove the entire Evidence Quality Map section from the text
+    so that its blocks are not counted against the citation grounding requirements.
+    This implements the explicit policy exception for the Evidence Quality Map.
+    """
+    if not text:
+        return text
+
+    # Find the start of the Evidence Quality Map heading
+    start_match = EVIDENCE_QUALITY_MAP_HEADING_RE.search(text)
+    if not start_match:
+        return text
+
+    start_pos = start_match.start()
+
+    # Find the next top-level heading after it (or end of string)
+    remaining = text[start_match.end():]
+    next_heading = HEADING_RE.search(remaining)
+
+    if next_heading:
+        end_pos = start_match.end() + next_heading.start()
+    else:
+        end_pos = len(text)
+
+    # Return the text with that section removed
+    return text[:start_pos] + text[end_pos:]
 
 
 def claim_support_urls(claim: dict) -> list[str]:
@@ -405,6 +438,11 @@ def evaluate_grounding(report: str, claims: list[dict], threshold: float = 0.70)
     report = content_to_text(report)
     body_text, sources_text = split_report_body_and_sources(report)
 
+    # Explicit policy exception: do not penalize the Evidence Quality Map
+    # section for missing local citations (it is allowed to be meta-analysis
+    # of our internal evidence map).
+    body_text_for_block_check = strip_evidence_quality_map_section(body_text)
+
     body_urls = set(extract_urls(body_text))
     sources_section_urls = set(extract_urls(sources_text))
     report_urls = set(extract_urls(report))
@@ -471,7 +509,7 @@ def evaluate_grounding(report: str, claims: list[dict], threshold: float = 0.70)
         else 0.0
     )
 
-    block_eval = evaluate_block_citation_proximity(body_text)
+    block_eval = evaluate_block_citation_proximity(body_text_for_block_check)
     block_citation_rate = block_eval["block_citation_rate"]
 
     # v3 score:

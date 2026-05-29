@@ -34,6 +34,7 @@ def fallback_brief(goal: str) -> dict:
         "research_type": "general_explainer",
         "freshness_required": True,
         "target_depth": "standard",
+        "hype_sensitivity": "medium",
         "must_cover": [],
         "avoid": []
     }
@@ -83,7 +84,12 @@ Rules for freshness_required:
 Rules for target_depth:
 - brief: simple factual question, quick answer needed
 - standard: normal research question
-- deep: complex analysis, comparisons, policy, investment decisions
+- deep: complex analysis, comparisons, policy, investment decisions, contested topics, scientific_academic evaluations of real-world programs, or when user wants substantial depth. Prefer "deep" for scientific_academic or policy_legal questions involving impact, outcomes, or rigorous evidence synthesis.
+
+Rules for hype_sensitivity (very important):
+- "high": Question asks about hype, marketing claims, "actually working", "real impact", "reality vs claims", productivity numbers, benchmark vs real world, "is X as good as advertised", etc. These questions need critical evidence analysis.
+- "medium": Normal technical or analytical question
+- "low": Straightforward factual or historical questions
 
 Return STRICT JSON only. No markdown, no explanation, no backticks:
 {{
@@ -92,6 +98,7 @@ Return STRICT JSON only. No markdown, no explanation, no backticks:
   "research_type": "one of the types above",
   "freshness_required": true,
   "target_depth": "standard",
+  "hype_sensitivity": "medium",
   "must_cover": ["key aspect 1", "key aspect 2"],
   "avoid": ["irrelevant aspect 1"]
 }}
@@ -103,6 +110,8 @@ Return STRICT JSON only. No markdown, no explanation, no backticks:
         brief = json.loads(content)
         print(f"   ✅ Research type: {brief['research_type']}")
         print(f"   ✅ Freshness required: {brief['freshness_required']}")
+        print(f"   ✅ Target depth: {brief.get('target_depth', 'standard')}")
+        print(f"   ✅ Hype sensitivity: {brief.get('hype_sensitivity', 'medium')}")
         print(f"   ✅ Must cover: {brief['must_cover']}")
 
         return {"brief": brief}

@@ -34,6 +34,7 @@ from team.writer import writer_agent
 from team.reportverifier import report_verifier_agent
 from team.reportrepair import report_repair_agent
 from team.evaluator import evaluator_agent
+from team.evidence_map import build_evidence_map
 
 
 # 🚦 ROUTER
@@ -128,6 +129,7 @@ def build_graph() -> StateGraph:
     graph.add_node("claim_verify", claim_verifier_agent)
     graph.add_node("human_review", human_review_agent)
     graph.add_node("budget_check", budget_check)
+    graph.add_node("build_evidence_map", lambda state: {"evidence_map": build_evidence_map(state.get("verified_findings", []))})
     graph.add_node("write", writer_agent)
     graph.add_node("report_verify", report_verifier_agent)
     graph.add_node("report_repair", report_repair_agent)
@@ -150,7 +152,8 @@ def build_graph() -> StateGraph:
     graph.add_edge("claim_build", "claim_verify")
     graph.add_edge("claim_verify", "human_review")
     graph.add_edge("human_review", "budget_check")
-    graph.add_edge("budget_check", "write")
+    graph.add_edge("budget_check", "build_evidence_map")
+    graph.add_edge("build_evidence_map", "write")
     graph.add_edge("write", "report_verify")
     graph.add_conditional_edges("report_verify", route_after_report_verify, {
         "report_repair": "report_repair",

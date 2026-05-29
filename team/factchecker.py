@@ -234,6 +234,7 @@ Rules:
 - Reject SEO spam (high ranking but no substance)
 - Official/primary sources score higher for credibility
 - If freshness_required is false, freshness does not affect verdict
+- For scientific_academic briefs: Be more accepting of high-quality primary reports from reputable research organizations (e.g. major pilot studies from well-known orgs like 4 Day Week Global, Autonomy, OECD, etc.), even if they are not traditional peer-reviewed papers. Prioritize concrete data over perfect academic formatting.
 
 Findings to score:
 {findings_block}

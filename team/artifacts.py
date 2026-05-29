@@ -72,12 +72,15 @@ def summarize_state(state: dict, run_id: str, artifact_dir: Path) -> dict:
     rejected_claims = state.get("rejected_claims", []) or []
     report_verification = state.get("report_verification", {}) or {}
 
+    brief = state.get("brief", {}) or {}
     return {
         "artifact_version": ARTIFACT_VERSION,
         "run_id": run_id,
         "artifact_dir": str(artifact_dir),
         "goal": state.get("goal", ""),
-        "brief_type": (state.get("brief", {}) or {}).get("research_type"),
+        "brief_type": brief.get("research_type"),
+        "brief_target_depth": brief.get("target_depth"),
+        "brief_hype_sensitivity": brief.get("hype_sensitivity"),
         "input_guardrail_passed": state.get("input_guardrail_passed"),
         "output_guardrail_passed": state.get("output_guardrail_passed"),
         "grounding_gate_passed": state.get("grounding_gate_passed"),
@@ -103,6 +106,15 @@ def summarize_state(state: dict, run_id: str, artifact_dir: Path) -> dict:
         "search_cache_hit_count": sum(1 for finding in findings if finding.get("search_cache_status") == "hit"),
         "source_cache_hit_count": sum(1 for finding in findings if finding.get("cache_status") == "hit"),
     }
+
+    # Add key evidence map stats if available (for source intelligence)
+    em = state.get("evidence_map") or {}
+    if em:
+        summary["evidence_map_total_verified"] = em.get("total_verified")
+        summary["evidence_map_high_quality_count"] = em.get("high_quality_count")
+        summary["evidence_map_academic_official_count"] = em.get("academic_or_official_count")
+        summary["evidence_map_average_credibility"] = (em.get("credibility_stats") or {}).get("average_credibility")
+        summary["evidence_map_key_gaps"] = em.get("key_gaps", [])
 
 
 def write_summary_markdown(path: Path, summary: dict) -> None:
@@ -133,6 +145,16 @@ def write_summary_markdown(path: Path, summary: dict) -> None:
         f"- Sources fetched OK/weak/failed: `{summary['source_fetch_ok_count']}/{summary['source_fetch_weak_count']}/{summary['source_fetch_failed_count']}`",
         f"- Search/source cache hits: `{summary['search_cache_hit_count']}/{summary['source_cache_hit_count']}`",
     ]
+
+    if summary.get("evidence_map_total_verified"):
+        lines.append("")
+        lines.append("## Evidence Quality")
+        lines.append(f"- Verified findings: `{summary.get('evidence_map_total_verified')}`")
+        lines.append(f"- High-quality sources (4-5): `{summary.get('evidence_map_high_quality_count', 0)}`")
+        lines.append(f"- Academic/official primary sources: `{summary.get('evidence_map_academic_official_count', 0)}`")
+        lines.append(f"- Average credibility: `{summary.get('evidence_map_average_credibility', 'N/A')}`")
+        if summary.get("evidence_map_key_gaps"):
+            lines.append("- Key gaps noted in evidence map")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -175,6 +197,10 @@ def write_run_artifacts(
     write_json(artifact_dir / "claims.json", state.get("claims", []))
     write_json(artifact_dir / "claim_verifications.json", state.get("claim_verifications", []))
     write_json(artifact_dir / "rejected_claims.json", state.get("rejected_claims", []))
+
+    # Save full evidence map for source intelligence
+    if state.get("evidence_map"):
+        write_json(artifact_dir / "evidence_map.json", state.get("evidence_map"))
     write_json(artifact_dir / "human_review.json", state.get("human_review", {}))
     write_json(artifact_dir / "report_verification.json", state.get("report_verification", {}))
     write_json(artifact_dir / "report_verifications.json", state.get("report_verifications", []))

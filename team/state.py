@@ -8,14 +8,15 @@ from typing import TypedDict, List, Optional
 # ── STRUCTURED TYPES ──
 
 class ResearchBrief(TypedDict):
-    """Created by brief_agent. Classified the reserach intent."""
+    """Created by brief_agent. Classified the research intent."""
     user_goal: str
     topic: str
-    reserach_type: str # market_analysis, current_events, technical_research etc.
-    freshness_required: bool # true prices, news, laws, products, people
-    target_depth: str # brief | standard | deep
-    must_cover: List[str] # topics that must appear in the report 
-    avoid: List[str] # topics that should be avoided in the report
+    research_type: str  # market_analysis, current_events, technical_research etc.
+    freshness_required: bool  # true for prices, news, laws, products, people
+    target_depth: str  # brief | standard | deep
+    hype_sensitivity: str  # high | medium | low  (high = question is about hype/claims vs reality)
+    must_cover: List[str]  # topics that must appear in the report
+    avoid: List[str]  # topics that should be avoided in the report
     
 class SearchQuery(TypedDict): 
     """Created by planner_agent. One targeted search query."""
@@ -161,6 +162,7 @@ class ResearchAgentState(TypedDict):
     findings: List[SourceFinding]          # written by searcher_agent
     verified_findings: List[VerifiedFinding]  # written by fact_checker_agent
     rejected_findings: List[VerifiedFinding]  # written by fact_checker_agent (audit)
+    evidence_map: dict                     # computed before writer - rich summary of evidence quality
 
     # ── CLAIMS ──
     claims: List[SupportedClaim]           # written by claim_builder_agent

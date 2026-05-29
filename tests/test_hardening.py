@@ -692,6 +692,37 @@ class HardeningTests(unittest.TestCase):
 
         self.assertEqual(report, blocked_report)
 
+    def test_scientific_academic_health_outcomes_does_not_trigger_hitl(self):
+        """Regression test: population-level 'health outcomes' in CCT research must NOT trigger HITL.
+
+        This was the exact failure mode for queries like:
+        "how effective have conditional cash transfer programs been at improving ... health ... outcomes"
+        with research_type=scientific_academic.
+        """
+        high_stakes, reasons = is_high_stakes(
+            "According to rigorous evaluations, how effective have conditional cash transfer programs been at improving education, health, and poverty outcomes?",
+            {
+                "research_type": "scientific_academic",
+                "topic": "Efficacy of Conditional Cash Transfer (CCT) Programs",
+                "must_cover": [
+                    "Impact on child health and nutrition outcomes",
+                    "Long-term poverty reduction",
+                ],
+            },
+        )
+
+        self.assertFalse(high_stakes, f"Should not be high-stakes, but got reasons: {reasons}")
+        self.assertEqual(reasons, [])
+
+    def test_scientific_academic_personal_advice_still_triggers(self):
+        """Personal advice intent inside a scientific brief should still be caught (narrow case)."""
+        high_stakes, reasons = is_high_stakes(
+            "I have hypertension. Should I take this new drug based on the latest trials?",
+            {"research_type": "scientific_academic"},
+        )
+        self.assertTrue(high_stakes)
+        self.assertTrue(any("personal_advice_intent" in r for r in reasons))
+
 
 if __name__ == "__main__":
     unittest.main()
