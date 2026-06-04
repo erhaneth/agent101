@@ -2,13 +2,19 @@ services:
   - type: web
     name: factcrafter-api
     env: python
-    plan: free
-    buildCommand: pip install -r requirements.txt
+    plan: starter
+    buildCommand: pip install -r requirements.lock && cd ui && npm ci && npm run build
     startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/ready
+    maxShutdownDelaySeconds: 60
     envVars:
       - key: GOOGLE_API_KEY
         sync: false
       - key: TAVILY_API_KEY
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
         sync: false
       - key: LANGSMITH_API_KEY
         sync: false
@@ -16,6 +22,44 @@ services:
         value: "true"
       - key: LANGSMITH_PROJECT
         value: "factcrafter"
+      - key: ENVIRONMENT
+        value: "production"
+      - key: AUTH_SECRET_KEY
+        sync: false
+      - key: AUTH_FRONTEND_URL
+        sync: false
+      - key: AUTH_BACKEND_URL
+        sync: false
+      - key: AUTH_DATABASE_URL
+        fromDatabase:
+          name: factcrafter-postgres
+          property: connectionString
+      - key: AUTH_COOKIE_SECURE
+        value: "true"
+      - key: AUTH_REQUIRED
+        value: "true"
+      - key: JOB_EXECUTION_MODE
+        value: "external"
+      - key: JOB_DATABASE_URL
+        fromDatabase:
+          name: factcrafter-postgres
+          property: connectionString
+      - key: JOB_MAX_ATTEMPTS
+        value: "3"
+      - key: JOB_STALE_AFTER_SECONDS
+        value: "900"
+      - key: ALERT_WEBHOOK_URL
+        sync: false
+      - key: MAX_ACTIVE_JOBS_PER_USER
+        value: "3"
+      - key: MAX_JOB_CREATES_PER_WINDOW
+        value: "10"
+      - key: JOB_CREATE_WINDOW_SECONDS
+        value: "3600"
+      - key: ARTIFACT_DATABASE_URL
+        fromDatabase:
+          name: factcrafter-postgres
+          property: connectionString
       - key: GEMINI_MODEL
         value: "gemini-3.1-flash-lite"
       - key: BRIEF_MODEL
@@ -30,3 +74,70 @@ services:
         value: "gemini-3.1-flash-lite"
       - key: GROUNDING_THRESHOLD
         value: "0.80"
+
+  - type: worker
+    name: factcrafter-worker
+    env: python
+    plan: starter
+    buildCommand: pip install -r requirements.lock
+    startCommand: python worker.py
+    maxShutdownDelaySeconds: 300
+    envVars:
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: LANGSMITH_API_KEY
+        sync: false
+      - key: LANGSMITH_TRACING
+        value: "true"
+      - key: LANGSMITH_PROJECT
+        value: "factcrafter"
+      - key: ENVIRONMENT
+        value: "production"
+      - key: AUTH_SECRET_KEY
+        sync: false
+      - key: AUTH_DATABASE_URL
+        fromDatabase:
+          name: factcrafter-postgres
+          property: connectionString
+      - key: JOB_EXECUTION_MODE
+        value: "external"
+      - key: JOB_DATABASE_URL
+        fromDatabase:
+          name: factcrafter-postgres
+          property: connectionString
+      - key: JOB_MAX_ATTEMPTS
+        value: "3"
+      - key: JOB_STALE_AFTER_SECONDS
+        value: "900"
+      - key: ALERT_WEBHOOK_URL
+        sync: false
+      - key: MAX_ACTIVE_JOBS_PER_USER
+        value: "3"
+      - key: MAX_JOB_CREATES_PER_WINDOW
+        value: "10"
+      - key: JOB_CREATE_WINDOW_SECONDS
+        value: "3600"
+      - key: ARTIFACT_DATABASE_URL
+        fromDatabase:
+          name: factcrafter-postgres
+          property: connectionString
+      - key: GEMINI_MODEL
+        value: "gemini-3.1-flash-lite"
+      - key: BRIEF_MODEL
+        value: "gemini-3.1-flash-lite"
+      - key: PLANNER_MODEL
+        value: "gemini-3.1-flash-lite"
+      - key: CHECKER_MODEL
+        value: "gemini-3.1-flash-lite"
+      - key: CLAIM_MODEL
+        value: "gemini-3.1-flash-lite"
+      - key: WRITER_MODEL
+        value: "gemini-3.1-flash-lite"
+      - key: GROUNDING_THRESHOLD
+        value: "0.80"
+
+databases:
+  - name: factcrafter-postgres
+    plan: basic-256mb

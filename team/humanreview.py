@@ -20,6 +20,7 @@ import sys
 
 from langsmith import traceable
 
+from team.runtime_context import current_web_job_id, is_web_context
 from team.state import ResearchAgentState
 
 
@@ -68,6 +69,14 @@ def hitl_mode() -> str:
 
 def is_interactive() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def is_web_mode() -> bool:
+    return is_web_context()
+
+
+def web_job_id() -> str:
+    return current_web_job_id()
 
 
 def contains_personal_advice_intent(text: str) -> bool:
@@ -240,6 +249,37 @@ def human_review_agent(state: ResearchAgentState) -> dict:
         }
 
     print(f"\n🧑‍⚖️ HUMAN REVIEW: Required ({', '.join(reasons)})")
+
+    if is_web_mode() and web_job_id():
+        from team.web_review import register_review, wait_for_web_approval
+
+        register_review(
+            web_job_id(),
+            goal=state.get("goal", ""),
+            claims=state.get("claims", []) or [],
+            reasons=reasons,
+        )
+        approved, decision = wait_for_web_approval(web_job_id())
+        if not approved:
+            return blocked_review_update(
+                state,
+                mode,
+                reasons,
+                decision=decision,
+                reviewer="human_web",
+                rejection_reason="Web reviewer rejected the claims before writing.",
+                caveat="Revise the evidence or claims, then rerun review.",
+            )
+        return {
+            "human_review": {
+                "required": True,
+                "approved": True,
+                "mode": mode,
+                "reasons": reasons,
+                "decision": decision,
+                "reviewer": "human_web",
+            }
+        }
 
     if is_interactive():
         approved, decision = interactive_review(state)

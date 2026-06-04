@@ -1,0 +1,1 @@
+# FactCrafter authentication (Google OAuth + session cookies).

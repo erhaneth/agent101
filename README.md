@@ -201,6 +201,97 @@ Each eval run saves artifacts under `evals/runs/<run_id>/`, including the report
 
 ---
 
+## Deployment Smoke Check
+
+After deploying the web API, verify the hosted service:
+
+```bash
+scripts/smoke.sh https://api.your-production-domain.com
+```
+
+The smoke check verifies `/api/health`, `/api/ready`, `/api/metrics`, and the `X-Request-ID` response header. During early staging setup, you can allow degraded readiness while databases or artifact storage are still being wired:
+
+```bash
+scripts/smoke.sh https://api.your-production-domain.com --allow-degraded-ready
+```
+
+GitHub Actions also includes a hosted smoke workflow. Configure repository secret `FACTCRAFTER_SMOKE_URL` to run it automatically after successful `CI` runs on `main`, or trigger **Hosted Smoke** manually with a `base_url` input.
+
+Run a lightweight API load probe against staging or a local dev-auth server:
+
+```bash
+scripts/load-probe.sh https://api.your-production-domain.com --requests 60 --concurrency 6
+```
+
+For local or staging environments where job creation is safe and authenticated, include the queued create/cancel flow:
+
+```bash
+scripts/load-probe.sh http://127.0.0.1:8000 --requests 40 --concurrency 4 --include-job-flow
+```
+
+## Production Config Validation
+
+Before promoting a deployment, validate the production environment:
+
+```bash
+.venv/bin/python scripts/validate_config.py --env-file .env.production --strict-warnings
+```
+
+The validator checks production-only requirements such as secure auth cookies, HTTPS auth URLs, safe CORS origins, Google OAuth/API keys, external worker mode, shared Postgres-backed auth/job storage, durable artifact storage, job limits, alert webhook URL, and hosted smoke URL.
+
+`render.yaml` declares the production shape for Render: API web service, external worker, shared `factcrafter-postgres` database, `/api/ready` health checks, OAuth credential prompts, and Postgres-backed auth/job/artifact storage. After creating the Blueprint, fill the secret prompts in Render and export the resolved production env into `.env.production` before running the validator/release gate.
+
+Run the full production release gate when a deployment is ready to promote:
+
+```bash
+scripts/release-gate.sh --env-file .env.production --base-url https://api.your-production-domain.com
+```
+
+This runs config validation, hosted smoke checks, and the load probe in sequence. The release gate rejects local or example hosts, and `--base-url` must match `FACTCRAFTER_SMOKE_URL` in the production env file so the config you validate is the deployment you probe. Use `--dry-run` to preview the commands, and add `--include-job-flow` only for staging environments where creating and canceling queued jobs is safe.
+
+## Browser E2E Check
+
+Install the Playwright browser once:
+
+```bash
+cd ui
+npx playwright install chromium
+```
+
+Run the browser E2E gate:
+
+```bash
+scripts/e2e.sh
+```
+
+This starts isolated local FastAPI and Vite servers with dev auth enabled and external-worker mode. The current E2E suite creates a queued research job through the UI, cancels it through the real API, opens a seeded saved report from the library, verifies report/facts/sources rendering, approves an awaiting human review, follows simulated worker progress through a completed report, and checks auth-required Google-login handoff UI. Include it in the full local gate with:
+
+```bash
+RUN_E2E=1 scripts/check.sh
+```
+
+---
+
+## Worker Operations
+
+Run the external worker:
+
+```bash
+python worker.py
+```
+
+Verify worker job-store connectivity without claiming work:
+
+```bash
+python worker.py --healthcheck
+```
+
+Each worker process runs one research job at a time. Increase production concurrency by running additional worker processes or services against the same `JOB_DATABASE_URL`.
+
+Job cancellation is cooperative. Queued jobs are canceled before worker claim; running jobs store a shared cancel request and workers stop before guardrail work or between streamed graph updates.
+
+---
+
 ## Run Artifacts
 
 Normal research runs save an audit trail under `runs/<run_id>/` by default.

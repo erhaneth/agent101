@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from team.artifact_store import configured_artifact_store
 from team.utils import content_to_text
 
 
@@ -57,6 +58,14 @@ def run_artifact_root(root: str | Path | None = None) -> Path:
     return Path(os.getenv("RUN_ARTIFACT_DIR", DEFAULT_RUNS_DIR))
 
 
+def user_runs_dir(user_id: str | None, root: str | Path | None = None) -> Path:
+    """Per-user artifact root under runs/users/<user_id>/."""
+    base = run_artifact_root(root)
+    if user_id:
+        return base / "users" / user_id
+    return base
+
+
 def should_save_artifacts(value: bool | None = None) -> bool:
     if value is not None:
         return value
@@ -77,6 +86,7 @@ def summarize_state(state: dict, run_id: str, artifact_dir: Path) -> dict:
         "artifact_version": ARTIFACT_VERSION,
         "run_id": run_id,
         "artifact_dir": str(artifact_dir),
+        "user_id": state.get("user_id"),
         "goal": state.get("goal", ""),
         "brief_type": brief.get("research_type"),
         "brief_target_depth": brief.get("target_depth"),
@@ -158,57 +168,161 @@ def write_summary_markdown(path: Path, summary: dict) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def _artifact_files(state: dict, report: str, summary: dict, uid: str | None, run_id: str) -> dict[str, tuple[str, str]]:
+    files: dict[str, tuple[str, str]] = {
+        "input.json": (
+            json.dumps(
+                json_safe(
+                    {
+                        "artifact_version": ARTIFACT_VERSION,
+                        "run_id": run_id,
+                        "user_id": uid,
+                        "goal": state.get("goal", ""),
+                    }
+                ),
+                indent=2,
+                ensure_ascii=False,
+            ),
+            "application/json",
+        ),
+        "guardrails.json": (
+            json.dumps(
+                json_safe(
+                    {
+                        "input_guardrail_passed": state.get("input_guardrail_passed"),
+                        "input_guardrail_reason": state.get("input_guardrail_reason"),
+                        "output_guardrail_passed": state.get("output_guardrail_passed"),
+                        "output_guardrail_reason": state.get("output_guardrail_reason"),
+                    }
+                ),
+                indent=2,
+                ensure_ascii=False,
+            ),
+            "application/json",
+        ),
+        "brief.json": (json.dumps(json_safe(state.get("brief", {})), indent=2, ensure_ascii=False), "application/json"),
+        "plan.json": (json.dumps(json_safe(state.get("plan", [])), indent=2, ensure_ascii=False), "application/json"),
+        "findings.json": (json.dumps(json_safe(state.get("findings", [])), indent=2, ensure_ascii=False), "application/json"),
+        "verified_findings.json": (
+            json.dumps(json_safe(state.get("verified_findings", [])), indent=2, ensure_ascii=False),
+            "application/json",
+        ),
+        "rejected_findings.json": (
+            json.dumps(json_safe(state.get("rejected_findings", [])), indent=2, ensure_ascii=False),
+            "application/json",
+        ),
+        "claims.json": (json.dumps(json_safe(state.get("claims", [])), indent=2, ensure_ascii=False), "application/json"),
+        "claim_verifications.json": (
+            json.dumps(json_safe(state.get("claim_verifications", [])), indent=2, ensure_ascii=False),
+            "application/json",
+        ),
+        "rejected_claims.json": (
+            json.dumps(json_safe(state.get("rejected_claims", [])), indent=2, ensure_ascii=False),
+            "application/json",
+        ),
+        "human_review.json": (
+            json.dumps(json_safe(state.get("human_review", {})), indent=2, ensure_ascii=False),
+            "application/json",
+        ),
+        "report_verification.json": (
+            json.dumps(json_safe(state.get("report_verification", {})), indent=2, ensure_ascii=False),
+            "application/json",
+        ),
+        "report_verifications.json": (
+            json.dumps(json_safe(state.get("report_verifications", [])), indent=2, ensure_ascii=False),
+            "application/json",
+        ),
+        "report_repair_history.json": (
+            json.dumps(json_safe(state.get("report_repair_history", [])), indent=2, ensure_ascii=False),
+            "application/json",
+        ),
+        "evaluation.json": (
+            json.dumps(json_safe(state.get("evaluation", {})), indent=2, ensure_ascii=False),
+            "application/json",
+        ),
+        "summary.json": (json.dumps(json_safe(summary), indent=2, ensure_ascii=False), "application/json"),
+        "state.json": (json.dumps(json_safe(state), indent=2, ensure_ascii=False), "application/json"),
+        "summary.md": (_summary_markdown(summary), "text/markdown"),
+        "report.md": (report, "text/markdown"),
+    }
+    if state.get("evidence_map"):
+        files["evidence_map.json"] = (
+            json.dumps(json_safe(state.get("evidence_map")), indent=2, ensure_ascii=False),
+            "application/json",
+        )
+    return files
+
+
+def _summary_markdown(summary: dict) -> str:
+    lines = [
+        "# FactCrafter Run Summary",
+        "",
+        f"- Run ID: `{summary['run_id']}`",
+        f"- Goal: {summary['goal']}",
+        f"- Research type: `{summary.get('brief_type')}`",
+        f"- Grounding passed: `{summary.get('grounding_gate_passed')}`",
+        f"- Grounding score: `{summary.get('grounding_score')}`",
+        f"- Citation integrity: `{summary.get('citation_integrity_passes')}`",
+        "",
+        "## Counts",
+        "",
+        f"- Findings: `{summary['finding_count']}`",
+        f"- Verified findings: `{summary['verified_finding_count']}`",
+        f"- Rejected findings: `{summary['rejected_finding_count']}`",
+        f"- Claims retained: `{summary['claim_count']}`",
+        f"- Claim verifications: `{summary['claim_verification_count']}`",
+        f"- Rejected claims: `{summary['rejected_claim_count']}`",
+        f"- Human review required/approved: `{summary.get('human_review_required')}/{summary.get('human_review_approved')}`",
+        f"- Human review decision: `{summary.get('human_review_decision')}`",
+        f"- Report citation verification: `{summary.get('report_verification_passes')}`",
+        f"- Report citation support rate: `{summary.get('report_verification_support_rate')}`",
+        f"- Unsupported/missing final citations: `{summary.get('report_verification_unsupported_count')}/{summary.get('report_verification_missing_source_url_count')}`",
+        f"- Report repair attempts: `{summary.get('report_repair_attempts')}`",
+        f"- Sources fetched OK/weak/failed: `{summary['source_fetch_ok_count']}/{summary['source_fetch_weak_count']}/{summary['source_fetch_failed_count']}`",
+        f"- Search/source cache hits: `{summary['search_cache_hit_count']}/{summary['source_cache_hit_count']}`",
+    ]
+
+    if summary.get("evidence_map_total_verified"):
+        lines.append("")
+        lines.append("## Evidence Quality")
+        lines.append(f"- Verified findings: `{summary.get('evidence_map_total_verified')}`")
+        lines.append(f"- High-quality sources (4-5): `{summary.get('evidence_map_high_quality_count', 0)}`")
+        lines.append(f"- Academic/official primary sources: `{summary.get('evidence_map_academic_official_count', 0)}`")
+        lines.append(f"- Average credibility: `{summary.get('evidence_map_average_credibility', 'N/A')}`")
+        if summary.get("evidence_map_key_gaps"):
+            lines.append("- Key gaps noted in evidence map")
+    return "\n".join(lines) + "\n"
+
+
 def write_run_artifacts(
     state: dict,
     *,
     root: str | Path | None = None,
     run_id: str | None = None,
+    user_id: str | None = None,
 ) -> Path:
     """Persist one complete research run and return its artifact directory."""
     run_id = run_id or make_run_id(state.get("goal", "research-run"))
-    artifact_dir = run_artifact_root(root) / run_id
+    uid = user_id or state.get("user_id")
+    artifact_dir = user_runs_dir(uid, root) / run_id
     artifact_dir.mkdir(parents=True, exist_ok=True)
 
     report = content_to_text(state.get("report", ""))
     summary = summarize_state(state, run_id, artifact_dir)
+    artifact_files = _artifact_files(state, report, summary, uid, run_id)
 
-    write_json(
-        artifact_dir / "input.json",
-        {
-            "artifact_version": ARTIFACT_VERSION,
-            "run_id": run_id,
-            "goal": state.get("goal", ""),
-        },
-    )
-    write_json(
-        artifact_dir / "guardrails.json",
-        {
-            "input_guardrail_passed": state.get("input_guardrail_passed"),
-            "input_guardrail_reason": state.get("input_guardrail_reason"),
-            "output_guardrail_passed": state.get("output_guardrail_passed"),
-            "output_guardrail_reason": state.get("output_guardrail_reason"),
-        },
-    )
-    write_json(artifact_dir / "brief.json", state.get("brief", {}))
-    write_json(artifact_dir / "plan.json", state.get("plan", []))
-    write_json(artifact_dir / "findings.json", state.get("findings", []))
-    write_json(artifact_dir / "verified_findings.json", state.get("verified_findings", []))
-    write_json(artifact_dir / "rejected_findings.json", state.get("rejected_findings", []))
-    write_json(artifact_dir / "claims.json", state.get("claims", []))
-    write_json(artifact_dir / "claim_verifications.json", state.get("claim_verifications", []))
-    write_json(artifact_dir / "rejected_claims.json", state.get("rejected_claims", []))
+    for filename, (content, _) in artifact_files.items():
+        (artifact_dir / filename).write_text(content, encoding="utf-8")
 
-    # Save full evidence map for source intelligence
-    if state.get("evidence_map"):
-        write_json(artifact_dir / "evidence_map.json", state.get("evidence_map"))
-    write_json(artifact_dir / "human_review.json", state.get("human_review", {}))
-    write_json(artifact_dir / "report_verification.json", state.get("report_verification", {}))
-    write_json(artifact_dir / "report_verifications.json", state.get("report_verifications", []))
-    write_json(artifact_dir / "report_repair_history.json", state.get("report_repair_history", []))
-    write_json(artifact_dir / "evaluation.json", state.get("evaluation", {}))
-    write_json(artifact_dir / "summary.json", summary)
-    write_json(artifact_dir / "state.json", state)
-    write_summary_markdown(artifact_dir / "summary.md", summary)
-    (artifact_dir / "report.md").write_text(report, encoding="utf-8")
+    store = configured_artifact_store()
+    if store is not None:
+        for filename, (content, content_type) in artifact_files.items():
+            store.put_text(
+                user_id=uid,
+                run_id=run_id,
+                filename=filename,
+                content=content,
+                content_type=content_type,
+            )
 
     return artifact_dir

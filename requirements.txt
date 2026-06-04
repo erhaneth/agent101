@@ -1,3 +1,5 @@
+# Human-maintained top-level dependency inputs.
+# Production and CI install exact versions from requirements.lock.
 langgraph
 langchain
 langchain-community
@@ -7,3 +9,9 @@ langsmith
 python-dotenv
 requests
 pypdf
+fastapi
+uvicorn[standard]
+pydantic
+PyJWT
+httpx
+psycopg[binary]

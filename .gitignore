@@ -6,3 +6,7 @@ __pycache__/
 evals/runs/
 runs/
 .cache/
+data/
+tmp/e2e/
+ui/playwright-report/
+ui/test-results/
